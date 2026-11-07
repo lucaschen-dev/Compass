@@ -4,6 +4,17 @@ Compass is a school community app for posts, chats, assignments, and to-dos. Thi
 
 The development baseline is Flutter 3.47.7 and Dart 3.13.5. See the [development plan](plan.md) for upcoming iterations.
 
+## Preview local schools
+
+In VS Code, select **Compass · School preview** from **Run and Debug**. You can also start the preview from the project folder.
+
+```sh
+flutter pub get
+flutter run -d web-server --target lib/preview.dart --web-hostname=127.0.0.1 --web-port=8766
+```
+
+Open [the local preview](http://127.0.0.1:8766/) and choose **Find your school**. Alderline and Cedarbrook are fictional schools with their own announcements, course catalogs, graduation requirements, guides, and sample conversations. Use the arrows at the top right to switch campuses, and the nearby appearance menu to choose light or dark mode. The selected school, guide reading progress, and added classmates are saved in your browser. This preview runs without a backend, a school account, or verification codes.
+
 ## Run the web demo
 
 Run these commands from the project folder.

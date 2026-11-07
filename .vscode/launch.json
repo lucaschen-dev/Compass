@@ -1,6 +1,13 @@
 {
   "version": "0.2.0",
   "configurations": [
+    {
+      "name": "Compass · School preview",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "chrome",
+      "program": "lib/preview.dart"
+    },
     {"name":"Compass · Mac","request":"launch","type":"dart","deviceId":"macos"},
     {"name":"Compass · Select device","request":"launch","type":"dart"},
     {"name":"Compass · Web demo","request":"launch","type":"dart","deviceId":"chrome"}
