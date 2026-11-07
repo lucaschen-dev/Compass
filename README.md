@@ -1,6 +1,8 @@
-# Compass · Buckley Community
+# Compass
 
-Compass is a school community app for posts, chats, assignments, and to-dos. This project ports the original SwiftUI client to Flutter and includes the compatible Python backend. The iPhone and Mac apps use native SwiftUI interfaces. Flutter manages app state and API requests, and the Apple interfaces connect to Dart through a `MethodChannel`.
+Compass is a school community app. The current Flutter preview lets students explore two fictional schools locally. Its homepage uses the original iPhone layout with a neutral light and dark palette.
+
+The repository also includes the legacy Buckley community client. Its iPhone and Mac interfaces use SwiftUI, with Flutter managing app state and API requests through a `MethodChannel`.
 
 The development baseline is Flutter 3.47.7 and Dart 3.13.5. See the [development plan](plan.md) for upcoming iterations.
 
@@ -15,7 +17,7 @@ flutter run -d web-server --target lib/preview.dart --web-hostname=127.0.0.1 --w
 
 Open [the local preview](http://127.0.0.1:8766/) and choose **Find your school**. Alderline and Cedarbrook are fictional schools with their own announcements, course catalogs, graduation requirements, guides, and sample conversations. Use the arrows at the top right to switch campuses, and the nearby appearance menu to choose light or dark mode. The selected school, guide reading progress, and added classmates are saved in your browser. This preview runs without a backend, a school account, or verification codes.
 
-## Run the web demo
+## Run the legacy Buckley web demo
 
 Run these commands from the project folder.
 
@@ -28,12 +30,12 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080) and select **Explore the dem
 
 The production API and private school calendar feeds have browser cross-origin restrictions. Use a native client for those features and keep private subscription URLs confidential.
 
-## Run on macOS
+## Run the legacy Buckley app on macOS
 
 1. Install Flutter, Xcode, CocoaPods, and the Dart and Flutter extensions for VS Code.
 2. Open the folder that contains `pubspec.yaml`.
 3. In **Run and Debug**, select **Compass · Mac** and press **F5**.
-4. Choose **Explore the demo**, or select **Join your school** to sign in with your existing account.
+4. Choose **Explore the demo** for the local Buckley sample community. **Join your school** requires a running Buckley-compatible service.
 
 You can also launch the app from a terminal.
 
@@ -44,9 +46,9 @@ flutter run -d macos
 
 Flutter hot reload applies to the Dart interface. Stop and relaunch the app after changing SwiftUI code in `apple/`.
 
-The default server is `https://api.buckley.community`. Developers can change it on the sign-in screen. HTTP is supported for local development at `localhost` and `127.0.0.1`. Existing accounts, posts, and chats are stored on the server. Sign in again and reconnect the assignment feed after migrating from the original app. Open the original app to access its local drafts and to-dos.
+The legacy client defaults to `https://api.buckley.community`. Developers can change it on the sign-in screen. HTTP is supported for local development at `localhost` and `127.0.0.1`. Existing accounts, posts, and chats are stored on the server. Sign in again and reconnect the assignment feed after migrating from the original app. Open the original app to access its local drafts and to-dos.
 
-## Features
+## Legacy Buckley features
 
 - School email verification, password sign-in and reset, first-time profile setup, and secure session storage.
 - A community feed with important posts, search, categories, bookmarks, anonymous posting, priority requests, and requests for specific members to respond. Students can reply, report posts, block users, and manage their own posts.
@@ -65,7 +67,7 @@ The default server is `https://api.buckley.community`. Developers can change it 
 | iOS 17+ | SwiftUI tabs for Home, To Do, Chat, and Assignments, with post creation in the toolbar. iOS 26 and later use Liquid Glass controls. Earlier releases use the system styles available on those versions. Physical device installs and releases require Xcode signing. |
 | Android | Flutter Material interface with network permissions configured. Build and device validation are pending. |
 | Windows and Linux | Flutter Material interface. Build and device validation are pending. On Linux, follow the secure storage and video plugin documentation for system dependencies. |
-| Web | Flutter Material interface for the local demo. |
+| Web | Flutter local school preview and legacy Buckley demo. |
 
 The Apple interfaces follow the system light or dark appearance. The app refreshes every eight seconds while in the foreground. Push notifications and APNs registration are pending for this client. The original backend includes APNs support. Video playback uses `media_kit`, and the backend enforces file size, duration, and moderation limits.
 
@@ -73,7 +75,8 @@ The Apple interfaces follow the system light or dark appearance. The app refresh
 
 | Path | Purpose |
 | --- | --- |
-| `lib/main.dart` | Startup, dependency initialization, and interface selection. |
+| `lib/preview.dart` | Local school preview, school selection, and browser storage. |
+| `lib/main.dart` | Legacy client startup, dependency initialization, and interface selection. |
 | `lib/src/native_bridge.dart` | Connects the SwiftUI interfaces to Dart state and actions. |
 | `apple/` | Shared SwiftUI screens, native media previews, and UI tests. |
 | `macos/Runner/MainFlutterWindow.swift` and `ios/Runner/AppDelegate.swift` | Host the Flutter engine and native Apple interfaces. |
