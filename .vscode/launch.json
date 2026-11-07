@@ -2,14 +2,24 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Compass · School preview",
+      "name": "Compass · Web",
       "request": "launch",
       "type": "dart",
       "deviceId": "chrome",
-      "program": "lib/preview.dart"
+      "program": "lib/main.dart"
     },
-    {"name":"Compass · Mac","request":"launch","type":"dart","deviceId":"macos"},
-    {"name":"Compass · Select device","request":"launch","type":"dart"},
-    {"name":"Compass · Web demo","request":"launch","type":"dart","deviceId":"chrome"}
+    {
+      "name": "Compass · Mac",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "macos",
+      "program": "lib/main.dart"
+    },
+    {
+      "name": "Compass · Select device",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart"
+    }
   ]
 }

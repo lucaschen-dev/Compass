@@ -1,4 +1,4 @@
-package community.buckley.compass_flutter
+package com.lucaschen.compass
 
 import io.flutter.embedding.android.FlutterActivity
 

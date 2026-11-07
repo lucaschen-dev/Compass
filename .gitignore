@@ -46,13 +46,9 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
-# Backend runtime and local credentials
-.venv/
-__pycache__/
-.pytest_cache/
+# Local credentials and signing files
 .env
 .env.*
-backend/data/
 *.sqlite
 *.sqlite-*
 *.sqlite3

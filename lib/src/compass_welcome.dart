@@ -3,28 +3,16 @@ import 'package:flutter/material.dart';
 class CompassWelcome extends StatelessWidget {
   const CompassWelcome({
     super.key,
-    required this.onJoinSchool,
-    this.onExplore,
-    this.joinLabel = 'Join your school',
-    required this.description,
-    this.communityLabel = 'BUCKLEY COMMUNITY',
-    this.appearanceAction,
-    this.error,
+    required this.onFindSchool,
+    required this.appearanceAction,
   });
 
-  final VoidCallback onJoinSchool;
-  final VoidCallback? onExplore;
-  final String joinLabel;
-  final String description;
-  final String communityLabel;
-  final Widget? appearanceAction;
-  final String? error;
+  final VoidCallback onFindSchool;
+  final Widget appearanceAction;
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: appearanceAction == null
-        ? null
-        : AppBar(actions: [appearanceAction!]),
+    appBar: AppBar(actions: [appearanceAction]),
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(
@@ -48,9 +36,9 @@ class CompassWelcome extends StatelessWidget {
                     letterSpacing: -2,
                   ),
                 ),
-                Text(
-                  communityLabel,
-                  style: const TextStyle(letterSpacing: 3, fontSize: 12),
+                const Text(
+                  'LOCAL PREVIEW',
+                  style: TextStyle(letterSpacing: 3, fontSize: 12),
                 ),
                 const SizedBox(height: 24),
                 const Text(
@@ -58,31 +46,14 @@ class CompassWelcome extends StatelessWidget {
                   style: TextStyle(fontSize: 25, height: 1.4),
                 ),
                 const SizedBox(height: 32),
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Text(
-                      error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
                 FilledButton.icon(
-                  onPressed: onJoinSchool,
+                  onPressed: onFindSchool,
                   icon: const Icon(Icons.school_outlined),
-                  label: Text(joinLabel),
+                  label: const Text('Find your school'),
                 ),
-                if (onExplore != null) ...[
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: onExplore,
-                    child: const Text('Explore the demo'),
-                  ),
-                ],
                 const SizedBox(height: 24),
                 Text(
-                  description,
+                  'Explore a fictional school community. Your progress stays on this device.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "community.buckley" "\0"
-            VALUE "FileDescription", "compass_flutter" "\0"
+            VALUE "CompanyName", "LucasChen" "\0"
+            VALUE "FileDescription", "Compass" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "compass_flutter" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 community.buckley. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 LucasChen. All rights reserved." "\0"
             VALUE "OriginalFilename", "compass_flutter.exe" "\0"
-            VALUE "ProductName", "compass_flutter" "\0"
+            VALUE "ProductName", "Compass" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
