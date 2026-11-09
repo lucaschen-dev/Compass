@@ -121,15 +121,38 @@ class DemoHomePage extends StatelessWidget {
   }
 }
 
-class DemoProfilePage extends StatelessWidget {
-  const DemoProfilePage({super.key, required this.school});
+class DemoProfilePage extends StatefulWidget {
+  const DemoProfilePage({
+    super.key,
+    required this.school,
+    required this.ucInterest,
+    required this.onUcInterestChanged,
+  });
 
   final DemoSchool school;
+  final bool ucInterest;
+  final ValueChanged<bool> onUcInterestChanged;
+
+  @override
+  State<DemoProfilePage> createState() => _DemoProfilePageState();
+}
+
+class _DemoProfilePageState extends State<DemoProfilePage> {
+  late bool _ucInterest = widget.ucInterest;
+
+  @override
+  void didUpdateWidget(covariant DemoProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.ucInterest != widget.ucInterest) {
+      _ucInterest = widget.ucInterest;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final school = widget.school;
     final student = school.student;
 
     return _SchoolPage(
@@ -188,15 +211,55 @@ class DemoProfilePage extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 24),
+        _SchoolCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SectionHeading('Settings'),
+              const SizedBox(height: 6),
+              Text(
+                'Extra UC-only items are added to your Courses checklist.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Interested to enroll in UC'),
+                subtitle: const Text(
+                  'Adds UC requirements that are not already covered by '
+                  'grades 9–12 graduation rules.',
+                ),
+                value: _ucInterest,
+                onChanged: (value) {
+                  setState(() => _ucInterest = value);
+                  widget.onUcInterestChanged(value);
+                },
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
 }
 
 class DemoAcademicsPage extends StatefulWidget {
-  const DemoAcademicsPage({super.key, required this.school});
+  const DemoAcademicsPage({
+    super.key,
+    required this.school,
+    required this.ucInterest,
+    required this.completedByRequirement,
+    required this.onAdjustCompleted,
+  });
 
   final DemoSchool school;
+  final bool ucInterest;
+  final Map<String, int> completedByRequirement;
+  final Future<void> Function(DemoCreditRequirement requirement, int next)
+  onAdjustCompleted;
 
   @override
   State<DemoAcademicsPage> createState() => _DemoAcademicsPageState();
@@ -205,14 +268,16 @@ class DemoAcademicsPage extends StatefulWidget {
 class _DemoAcademicsPageState extends State<DemoAcademicsPage> {
   var _query = '';
 
+  int _completed(DemoCreditRequirement requirement) =>
+      widget.completedByRequirement[requirement.id] ?? 0;
+
   @override
   Widget build(BuildContext context) {
     final school = widget.school;
     final theme = Theme.of(context);
-    final requirements = school.graduationRequirements;
-    final totalCredits = requirements.fold(
-      0,
-      (total, requirement) => total + requirement.credits,
+    final colors = theme.colorScheme;
+    final requirements = school.requirementsChecklist(
+      ucInterest: widget.ucInterest,
     );
     final courses = school.courses
         .where(
@@ -229,32 +294,20 @@ class _DemoAcademicsPageState extends State<DemoAcademicsPage> {
         Text(
           school.name,
           style: theme.textTheme.titleMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+            color: colors.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 18),
-        _SchoolCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const _SectionHeading('Graduation requirements'),
-              const SizedBox(height: 6),
-              Text(
-                'Sample rules for this fictional school.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 10),
-              for (final requirement in requirements)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: _CreditRow(requirement.subject, requirement.credits),
-                ),
-              const Divider(height: 18),
-              _CreditRow('Total required', totalCredits, emphasize: true),
-            ],
-          ),
+        _RequirementsCard(
+          title: 'Graduation Requirements',
+          subtitle: widget.ucInterest
+              ? '9–12 and UC requirements'
+              : '9–12 requirements',
+          instructions:
+              'Mark what you have completed to see what you still need.',
+          requirements: requirements,
+          completedFor: _completed,
+          onAdjust: widget.onAdjustCompleted,
         ),
         const SizedBox(height: 24),
         const _SectionHeading('Course catalog'),
@@ -283,12 +336,218 @@ class _DemoAcademicsPageState extends State<DemoAcademicsPage> {
   }
 }
 
+class _RequirementsCard extends StatelessWidget {
+  const _RequirementsCard({
+    required this.title,
+    required this.subtitle,
+    required this.instructions,
+    required this.requirements,
+    required this.completedFor,
+    required this.onAdjust,
+  });
+
+  final String title;
+  final String subtitle;
+  final String instructions;
+  final List<DemoCreditRequirement> requirements;
+  final int Function(DemoCreditRequirement requirement) completedFor;
+  final Future<void> Function(DemoCreditRequirement requirement, int next)
+  onAdjust;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    // Overall totals (e.g. 25 courses) already include the subject rows.
+    final summaryRequirements = [
+      for (final requirement in requirements)
+        if (!requirement.id.endsWith('-total')) requirement,
+    ];
+    final remaining = summaryRequirements.fold<int>(0, (total, requirement) {
+      final done = completedFor(requirement).clamp(0, requirement.credits);
+      final stillNeed = requirement.credits - done;
+      return total + (stillNeed > 0 ? stillNeed : 0);
+    });
+    final requiredTotal = summaryRequirements.fold<int>(
+      0,
+      (total, requirement) => total + requirement.credits,
+    );
+    final completedTotal = requiredTotal - remaining;
+
+    return _SchoolCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _SectionHeading(title),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            instructions,
+            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+          ),
+          const SizedBox(height: 10),
+          for (final requirement in requirements)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: _RequirementProgressRow(
+                requirement: requirement,
+                completed: completedFor(requirement),
+                onAdjust: onAdjust,
+              ),
+            ),
+          const Divider(height: 18),
+          _CreditRow(
+            remaining == 0 ? 'All subject requirements met' : 'Still need',
+            remaining == 0 ? completedTotal : remaining,
+            emphasize: true,
+            unitLabel: remaining == 1 ? 'unit' : 'units',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RequirementProgressRow extends StatelessWidget {
+  const _RequirementProgressRow({
+    required this.requirement,
+    required this.completed,
+    required this.onAdjust,
+  });
+
+  final DemoCreditRequirement requirement;
+  final int completed;
+  final Future<void> Function(DemoCreditRequirement requirement, int next)
+  onAdjust;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final tracked = completed.clamp(0, requirement.maxTracked);
+    final towardRequired = tracked.clamp(0, requirement.credits);
+    final needed = requirement.credits - towardRequired;
+    final met = needed == 0;
+    final hasExtra = requirement.maxTracked > requirement.credits;
+    final progressLabel = tracked > requirement.credits
+        ? '${requirement.amountLabel(tracked)} logged'
+        : '${requirement.amountLabel(tracked)} of '
+              '${requirement.amountLabel(requirement.credits)}'
+              '${hasExtra ? ' required' : ''}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    requirement.subject,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (requirement.detail != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      requirement.detail!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  if (hasExtra) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Up to ${requirement.amountLabel(requirement.maxTracked)} '
+                      'recommended',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  progressLabel,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: met ? colors.primary : null,
+                    fontWeight: met ? FontWeight.w600 : null,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  met ? 'Complete' : 'Need ${requirement.amountLabel(needed)}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: met ? colors.primary : colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Remove completed ${requirement.unitLabel}',
+              onPressed: tracked == 0
+                  ? null
+                  : () => onAdjust(requirement, tracked - 1),
+              icon: const Icon(Icons.remove_circle_outline),
+              visualDensity: VisualDensity.compact,
+            ),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: requirement.credits == 0
+                      ? 0
+                      : towardRequired / requirement.credits,
+                  minHeight: 8,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Add completed ${requirement.unitLabel}',
+              onPressed: tracked >= requirement.maxTracked
+                  ? null
+                  : () => onAdjust(requirement, tracked + 1),
+              icon: const Icon(Icons.add_circle_outline),
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _CreditRow extends StatelessWidget {
-  const _CreditRow(this.label, this.credits, {this.emphasize = false});
+  const _CreditRow(
+    this.label,
+    this.credits, {
+    this.emphasize = false,
+    this.unitLabel,
+  });
 
   final String label;
   final int credits;
   final bool emphasize;
+  final String? unitLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -296,7 +555,7 @@ class _CreditRow extends StatelessWidget {
     final style = emphasize
         ? theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)
         : theme.textTheme.bodyMedium;
-    final unit = credits == 1 ? 'credit' : 'credits';
+    final unit = unitLabel ?? (credits == 1 ? 'credit' : 'credits');
     return Row(
       children: [
         Expanded(child: Text(label, style: style)),

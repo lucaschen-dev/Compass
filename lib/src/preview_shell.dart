@@ -36,6 +36,10 @@ class PreviewShell extends StatefulWidget {
     required this.onToggleCultureRead,
     required this.friendIds,
     required this.onAddFriend,
+    required this.ucInterest,
+    required this.onUcInterestChanged,
+    required this.completedByRequirement,
+    required this.onAdjustRequirementCompleted,
   });
 
   final DemoSchool school;
@@ -46,6 +50,11 @@ class PreviewShell extends StatefulWidget {
   final Future<void> Function(String) onToggleCultureRead;
   final Set<String> friendIds;
   final Future<void> Function(String) onAddFriend;
+  final bool ucInterest;
+  final Future<void> Function(bool value) onUcInterestChanged;
+  final Map<String, int> completedByRequirement;
+  final Future<void> Function(DemoCreditRequirement requirement, int next)
+  onAdjustRequirementCompleted;
 
   @override
   State<PreviewShell> createState() => _PreviewShellState();
@@ -65,7 +74,14 @@ class _PreviewShellState extends State<PreviewShell> {
           appBar: AppBar(),
           body: SafeArea(
             top: false,
-            child: DemoProfilePage(school: widget.school),
+            child: DemoProfilePage(
+              school: widget.school,
+              ucInterest: widget.ucInterest,
+              onUcInterestChanged: (value) => _save(
+                () => widget.onUcInterestChanged(value),
+                'Could not save UC interest. Try again.',
+              ),
+            ),
           ),
         ),
       ),
@@ -91,7 +107,15 @@ class _PreviewShellState extends State<PreviewShell> {
     final school = widget.school;
     final page = switch (_selected) {
       _Destination.home => DemoHomePage(school: school),
-      _Destination.academics => DemoAcademicsPage(school: school),
+      _Destination.academics => DemoAcademicsPage(
+        school: school,
+        ucInterest: widget.ucInterest,
+        completedByRequirement: widget.completedByRequirement,
+        onAdjustCompleted: (requirement, next) => _save(
+          () => widget.onAdjustRequirementCompleted(requirement, next),
+          'Could not save requirement progress. Try again.',
+        ),
+      ),
       _Destination.culture => CulturePage(
         school: school,
         readIds: widget.cultureReadIds,

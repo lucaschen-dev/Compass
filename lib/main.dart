@@ -16,6 +16,17 @@ String _legacyCultureReadKey(String id) => 'compass.preview.culture.read.$id';
 String _friendKey(DemoSchool school, String id) =>
     'compass.preview.${school.id}.friend.${school.student.id}.$id';
 
+String _ucInterestKey(DemoSchool school) =>
+    'compass.preview.${school.id}.ucInterest';
+
+String _requirementCompletedKey(DemoSchool school, String requirementId) =>
+    'compass.preview.${school.id}.req.completed.$requirementId';
+
+Iterable<String> _requirementIdsFor(DemoSchool school) => {
+  for (final requirement in school.graduationRequirements) requirement.id,
+  for (final requirement in school.ucRequirements) requirement.id,
+};
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final preferences = SharedPreferencesAsync();
@@ -27,6 +38,9 @@ Future<void> main() async {
         for (final school in demoSchools) ...{
           for (final item in school.guide) _cultureReadKey(school, item.id),
           for (final person in school.classmates) _friendKey(school, person.id),
+          _ucInterestKey(school),
+          for (final id in _requirementIdsFor(school))
+            _requirementCompletedKey(school, id),
           if (school.id == 'alderline')
             for (final item in school.guide) _legacyCultureReadKey(item.id),
         },
@@ -56,6 +70,8 @@ class _CompassAppState extends State<CompassApp> {
   final _pendingWrites = <String>{};
   final _readIdsBySchool = <String, Set<String>>{};
   final _friendIdsBySchool = <String, Set<String>>{};
+  final _ucInterestBySchool = <String, bool>{};
+  final _completedBySchool = <String, Map<String, int>>{};
 
   @override
   void initState() {
@@ -76,6 +92,16 @@ class _CompassAppState extends State<CompassApp> {
         for (final chat in school.conversations) chat.personId,
         for (final person in school.classmates)
           if (saved[_friendKey(school, person.id)] == true) person.id,
+      };
+      _ucInterestBySchool[school.id] =
+          saved[_ucInterestKey(school)] == true;
+      _completedBySchool[school.id] = {
+        for (final id in _requirementIdsFor(school))
+          if (saved[_requirementCompletedKey(school, id)] case final Object raw)
+            if (raw is int)
+              id: raw.clamp(0, 99)
+            else if (raw is num)
+              id: raw.toInt().clamp(0, 99),
       };
     }
   }
@@ -138,6 +164,57 @@ class _CompassAppState extends State<CompassApp> {
     await _setFlag(_friendKey(school, id), true, () => friendIds.add(id));
   }
 
+  Future<void> _setUcInterest(DemoSchool school, bool value) {
+    return _setFlag(_ucInterestKey(school), value, () {
+      _ucInterestBySchool[school.id] = value;
+    });
+  }
+
+  Future<void> _setRequirementCompleted(
+    DemoSchool school,
+    DemoCreditRequirement requirement,
+    int next,
+  ) async {
+    final key = _requirementCompletedKey(school, requirement.id);
+    if (!_pendingWrites.add(key)) return;
+    final capped = next.clamp(0, requirement.maxTracked);
+    final completed = _completedBySchool[school.id]!;
+    final DemoCreditRequirement? totalRequirement = requirement.countsTowardCourseTotal
+        ? school.graduationRequirements
+              .where((item) => item.id.endsWith('-total'))
+              .firstOrNull
+        : null;
+    try {
+      await widget.preferences.setInt(key, capped);
+      completed[requirement.id] = capped;
+
+      if (totalRequirement != null) {
+        final courseSum = school
+            .requirementsChecklist(
+              ucInterest: _ucInterestBySchool[school.id] ?? false,
+            )
+            .where((item) => item.countsTowardCourseTotal)
+            .fold<int>(
+              0,
+              (sum, item) => sum + (completed[item.id] ?? 0),
+            );
+        final totalKey = _requirementCompletedKey(school, totalRequirement.id);
+        final currentTotal = completed[totalRequirement.id] ?? 0;
+        final fromSubjects = courseSum.clamp(0, totalRequirement.maxTracked);
+        // Extra subject courses raise the 25-course total, never lower it.
+        if (fromSubjects > currentTotal) {
+          await widget.preferences.setInt(totalKey, fromSubjects);
+          completed[totalRequirement.id] = fromSubjects;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {});
+    } finally {
+      _pendingWrites.remove(key);
+    }
+  }
+
   Widget _appearanceAction() => Builder(
     builder: (context) {
       final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -181,6 +258,11 @@ class _CompassAppState extends State<CompassApp> {
           onToggleCultureRead: (id) => _toggleCultureRead(school, id),
           friendIds: _friendIdsBySchool[school.id]!,
           onAddFriend: (id) => _addFriend(school, id),
+          ucInterest: _ucInterestBySchool[school.id] ?? false,
+          onUcInterestChanged: (value) => _setUcInterest(school, value),
+          completedByRequirement: _completedBySchool[school.id]!,
+          onAdjustRequirementCompleted: (requirement, next) =>
+              _setRequirementCompleted(school, requirement, next),
         );
       },
     ),

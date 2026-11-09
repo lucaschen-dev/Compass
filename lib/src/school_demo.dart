@@ -59,7 +59,8 @@ class DemoSchool {
     required this.conversations,
     required this.guide,
     required this.courses,
-    required this.graduationRequirements,
+    this.graduationRequirements = highSchoolGraduationRequirements,
+    this.ucRequirements = ucAdmissionRequirements,
   });
 
   final String id;
@@ -73,9 +74,24 @@ class DemoSchool {
   final List<DemoGuideItem> guide;
   final List<DemoCourse> courses;
   final List<DemoCreditRequirement> graduationRequirements;
+  final List<DemoCreditRequirement> ucRequirements;
 
   DemoPerson classmate(String id) =>
       classmates.firstWhere((person) => person.id == id);
+
+  /// One combined checklist. UC interest only appends requirements not
+  /// already covered by grades 9–12 graduation rules.
+  List<DemoCreditRequirement> requirementsChecklist({
+    required bool ucInterest,
+  }) {
+    if (!ucInterest) return graduationRequirements;
+    return [
+      ...graduationRequirements,
+      for (final requirement in ucRequirements)
+        if (!_ucRequirementsCoveredByGraduation.contains(requirement.id))
+          requirement,
+    ];
+  }
 }
 
 class DemoGuideItem {
@@ -106,11 +122,171 @@ class DemoCourse {
 }
 
 class DemoCreditRequirement {
-  const DemoCreditRequirement(this.subject, this.credits);
+  const DemoCreditRequirement({
+    required this.id,
+    required this.subject,
+    required this.credits,
+    this.unitLabel = 'credits',
+    this.detail,
+    this.recommended,
+  });
 
+  final String id;
   final String subject;
+
+  /// Amount required to mark this requirement complete.
   final int credits;
+  final String unitLabel;
+  final String? detail;
+
+  /// Optional higher amount students can still log (e.g. for totals).
+  final int? recommended;
+
+  /// Highest amount the +/- controls will accept.
+  int get maxTracked =>
+      recommended != null && recommended! > credits ? recommended! : credits;
+
+  bool get countsTowardCourseTotal =>
+      !id.endsWith('-total') &&
+      (unitLabel == 'courses' || unitLabel == 'years');
+
+  String amountLabel(int amount) {
+    final unit = amount == 1
+        ? unitLabel.replaceFirst(RegExp(r's$'), '')
+        : unitLabel;
+    return '$amount $unit';
+  }
 }
+
+/// Grades 9–12 graduation requirements from schoolrequirements.pdf.
+const highSchoolGraduationRequirements = [
+  DemoCreditRequirement(
+    id: 'hs-english',
+    subject: 'English',
+    credits: 4,
+    unitLabel: 'years',
+  ),
+  DemoCreditRequirement(
+    id: 'hs-math',
+    subject: 'Mathematics',
+    credits: 1,
+    unitLabel: 'courses',
+    recommended: 4,
+    detail:
+        '1 course beyond Algebra II required. Extra courses still count '
+        'toward the 25-course minimum.',
+  ),
+  DemoCreditRequirement(
+    id: 'hs-science',
+    subject: 'Science',
+    credits: 3,
+    unitLabel: 'courses',
+    detail: 'Physics, Chemistry, and Biology required.',
+  ),
+  DemoCreditRequirement(
+    id: 'hs-social-science',
+    subject: 'Social Science',
+    credits: 3,
+    unitLabel: 'courses',
+    detail: 'World History and U.S. History required.',
+  ),
+  DemoCreditRequirement(
+    id: 'hs-world-languages',
+    subject: 'World Languages',
+    credits: 3,
+    unitLabel: 'courses',
+    detail: 'Coursework through Level III required.',
+  ),
+  DemoCreditRequirement(
+    id: 'hs-human-development',
+    subject: 'Human Development and Intersections of Identity',
+    credits: 1,
+    unitLabel: 'courses',
+    detail: 'Required courses taken during 9th grade.',
+  ),
+  DemoCreditRequirement(
+    id: 'hs-pe',
+    subject: 'Physical Education',
+    credits: 8,
+    unitLabel: 'trimesters',
+    detail: 'Complete by the end of senior year.',
+  ),
+  DemoCreditRequirement(
+    id: 'hs-arts',
+    subject: 'Arts',
+    credits: 2,
+    unitLabel: 'courses',
+    detail: 'Two year-long courses in visual and/or performing arts.',
+  ),
+  DemoCreditRequirement(
+    id: 'hs-total',
+    subject: 'Total courses',
+    credits: 25,
+    unitLabel: 'courses',
+    detail:
+        'Minimum passing courses to graduate, including the subject '
+        'requirements above.',
+  ),
+];
+
+/// UC admission eligibility (A–G) requirements from schoolrequirements.pdf.
+const ucAdmissionRequirements = [
+  DemoCreditRequirement(
+    id: 'uc-history',
+    subject: 'History/Social Science',
+    credits: 2,
+    detail: '2 year-long courses required.',
+  ),
+  DemoCreditRequirement(
+    id: 'uc-english',
+    subject: 'English',
+    credits: 4,
+    detail: '4 year-long courses required.',
+  ),
+  DemoCreditRequirement(
+    id: 'uc-math',
+    subject: 'Mathematics',
+    credits: 3,
+    recommended: 4,
+    detail: '3 year-long courses required; 4 recommended.',
+  ),
+  DemoCreditRequirement(
+    id: 'uc-lab-science',
+    subject: 'Laboratory Science',
+    credits: 2,
+    recommended: 3,
+    detail: '2 year-long courses required; 3 recommended.',
+  ),
+  DemoCreditRequirement(
+    id: 'uc-language',
+    subject: 'Language Other Than English',
+    credits: 2,
+    recommended: 3,
+    detail: '2 year-long courses required; 3 recommended.',
+  ),
+  DemoCreditRequirement(
+    id: 'uc-arts',
+    subject: 'Visual and Performing Arts',
+    credits: 1,
+    detail: '1 year-long course required.',
+  ),
+  DemoCreditRequirement(
+    id: 'uc-electives',
+    subject: 'College Preparatory Electives',
+    credits: 1,
+    detail: 'UC A–G: 1 year-long course required.',
+  ),
+];
+
+/// UC subjects already met or exceeded by grades 9–12 graduation rules.
+const _ucRequirementsCoveredByGraduation = {
+  'uc-history',
+  'uc-english',
+  'uc-math',
+  'uc-lab-science',
+  'uc-language',
+  'uc-arts',
+};
 
 const _alderlineStudent = DemoPerson(
   id: 'sam-rivera',
@@ -306,15 +482,6 @@ const demoSchools = [
         description: 'Build a portfolio in drawing and digital composition.',
       ),
     ],
-    graduationRequirements: [
-      DemoCreditRequirement('English', 4),
-      DemoCreditRequirement('Mathematics', 3),
-      DemoCreditRequirement('Science', 3),
-      DemoCreditRequirement('Social Studies', 3),
-      DemoCreditRequirement('Arts', 1),
-      DemoCreditRequirement('Physical Education', 2),
-      DemoCreditRequirement('Electives', 4),
-    ],
   ),
   DemoSchool(
     id: 'cedarbrook',
@@ -457,15 +624,6 @@ const demoSchools = [
         credits: 1,
         description: 'Learn the basics of stage lighting and set design.',
       ),
-    ],
-    graduationRequirements: [
-      DemoCreditRequirement('English', 4),
-      DemoCreditRequirement('Mathematics', 4),
-      DemoCreditRequirement('Science', 3),
-      DemoCreditRequirement('Social Studies', 3),
-      DemoCreditRequirement('Arts', 2),
-      DemoCreditRequirement('Physical Education', 2),
-      DemoCreditRequirement('Electives', 4),
     ],
   ),
 ];
