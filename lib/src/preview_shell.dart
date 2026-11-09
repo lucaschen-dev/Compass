@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 
 import 'culture_page.dart';
 import 'demo_chat_page.dart';
+import 'for_you_page.dart';
+import 'recommendations.dart';
 import 'school_demo.dart';
 import 'school_pages.dart';
 
 enum _Destination {
   home('Home', CupertinoIcons.house, CupertinoIcons.house_fill),
+  forYou('For you', CupertinoIcons.heart, CupertinoIcons.heart_fill),
   culture('Guide', CupertinoIcons.list_bullet, CupertinoIcons.list_bullet),
   chat(
     'Chat',
@@ -36,6 +39,8 @@ class PreviewShell extends StatefulWidget {
     required this.onToggleCultureRead,
     required this.friendIds,
     required this.onAddFriend,
+    required this.preferences,
+    required this.onSavePreferences,
   });
 
   final DemoSchool school;
@@ -46,6 +51,8 @@ class PreviewShell extends StatefulWidget {
   final Future<void> Function(String) onToggleCultureRead;
   final Set<String> friendIds;
   final Future<void> Function(String) onAddFriend;
+  final StudentPreferences preferences;
+  final Future<void> Function(StudentPreferences) onSavePreferences;
 
   @override
   State<PreviewShell> createState() => _PreviewShellState();
@@ -91,6 +98,11 @@ class _PreviewShellState extends State<PreviewShell> {
     final school = widget.school;
     final page = switch (_selected) {
       _Destination.home => DemoHomePage(school: school),
+      _Destination.forYou => ForYouPage(
+        school: school,
+        preferences: widget.preferences,
+        onSavePreferences: widget.onSavePreferences,
+      ),
       _Destination.academics => DemoAcademicsPage(school: school),
       _Destination.culture => CulturePage(
         school: school,

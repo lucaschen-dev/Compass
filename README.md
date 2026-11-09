@@ -4,6 +4,8 @@ Compass is a local Flutter school community app. Explore either of two fictional
 
 Use **Find your school** to enter a campus and the arrows in the top bar to switch schools. The appearance menu offers system, light, and dark modes. Your selected school, guide reading progress, and added classmates are saved on the device or in the browser. The app uses sample data and runs locally without accounts or verification codes.
 
+Open **For you** to choose interests and a preferred meetup time. Compass recommends up to three sample peers, clubs, and events per category, showing the interests behind each match. More shared interests rank first; equal matches are ordered alphabetically. Meetup time filters clubs and events. Each school's preferences are saved separately, and **Reset** followed by **Save preferences** clears only that school's choices. All matching runs locally using fictional school data.
+
 ## Set up
 
 Install Flutter, then run this command from the project directory.

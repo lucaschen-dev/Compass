@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/compass_welcome.dart';
 import 'src/preview_shell.dart';
 import 'src/preview_theme.dart';
+import 'src/recommendations.dart';
 import 'src/school_demo.dart';
 
 const _selectedSchoolKey = 'compass.preview.selectedSchool';
@@ -25,6 +26,7 @@ Future<void> main() async {
       allowList: {
         _selectedSchoolKey,
         for (final school in demoSchools) ...{
+          studentPreferencesKey(school),
           for (final item in school.guide) _cultureReadKey(school, item.id),
           for (final person in school.classmates) _friendKey(school, person.id),
           if (school.id == 'alderline')
@@ -56,12 +58,17 @@ class _CompassAppState extends State<CompassApp> {
   final _pendingWrites = <String>{};
   final _readIdsBySchool = <String, Set<String>>{};
   final _friendIdsBySchool = <String, Set<String>>{};
+  final _preferencesBySchool = <String, StudentPreferences>{};
 
   @override
   void initState() {
     super.initState();
     final saved = widget.saved;
     for (final school in demoSchools) {
+      _preferencesBySchool[school.id] = StudentPreferences.fromStorage(
+        saved[studentPreferencesKey(school)],
+        school,
+      );
       if (saved[_selectedSchoolKey] == school.id) _school = school;
       _readIdsBySchool[school.id] = {
         for (final item in school.guide)
@@ -138,6 +145,24 @@ class _CompassAppState extends State<CompassApp> {
     await _setFlag(_friendKey(school, id), true, () => friendIds.add(id));
   }
 
+  Future<void> _savePreferences(
+    DemoSchool school,
+    StudentPreferences next,
+  ) async {
+    final key = studentPreferencesKey(school);
+    if (!_pendingWrites.add(key)) {
+      throw StateError('Preferences are already being saved.');
+    }
+    try {
+      // One JSON value keeps a school's interests and meetup time together.
+      // https://pub.dev/packages/shared_preferences#sharedpreferencesasync
+      await widget.preferences.setString(key, next.toStorage());
+      if (mounted) setState(() => _preferencesBySchool[school.id] = next);
+    } finally {
+      _pendingWrites.remove(key);
+    }
+  }
+
   Widget _appearanceAction() => Builder(
     builder: (context) {
       final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -181,6 +206,8 @@ class _CompassAppState extends State<CompassApp> {
           onToggleCultureRead: (id) => _toggleCultureRead(school, id),
           friendIds: _friendIdsBySchool[school.id]!,
           onAddFriend: (id) => _addFriend(school, id),
+          preferences: _preferencesBySchool[school.id]!,
+          onSavePreferences: (next) => _savePreferences(school, next),
         );
       },
     ),
