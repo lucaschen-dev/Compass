@@ -8,6 +8,7 @@ Build on the existing Flutter project and review each iteration in the [browser]
 - Search courses by title or subject and view credits and prerequisites. The browser remembers the selected school and saves guide reading progress and added classmates separately for each school.
 - The homepage has a school wordmark, **Important** and **Latest posts**, a floating mobile tab bar, and neutral light and dark modes.
 - **For you** lets students save interests and a preferred meetup time separately for each school. Shared interests recommend sample classmates, clubs, and events; meetup time filters clubs and events. Preferences survive refreshes and can be edited or reset.
+- **Courses** has a school calendar above Graduation Requirements. Read-only ICS imports stay local and separate by school; sample calendars remain available. The searchable course catalog is at the bottom of **Guide**.
 
 ## Iterations
 
@@ -16,3 +17,7 @@ Build on the existing Flutter project and review each iteration in the [browser]
 3. Add local community interactions such as creating, replying to, and saving posts and sending demo messages.
 
 Review each iteration in both themes at phone and desktop widths. Check that switching schools keeps data separate and refreshing restores saved changes.
+
+## Later
+
+- Calendar events should eventually update completed courses that fulfill items in `requirementsChecklist`. The current calendar does not change requirement progress automatically.

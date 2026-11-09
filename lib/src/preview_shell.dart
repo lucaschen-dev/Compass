@@ -7,6 +7,7 @@ import 'culture_page.dart';
 import 'demo_chat_page.dart';
 import 'for_you_page.dart';
 import 'recommendations.dart';
+import 'school_calendar_data.dart';
 import 'school_demo.dart';
 import 'school_pages.dart';
 
@@ -45,6 +46,8 @@ class PreviewShell extends StatefulWidget {
     required this.onUcInterestChanged,
     required this.completedByRequirement,
     required this.onAdjustRequirementCompleted,
+    required this.calendar,
+    required this.onSaveCalendar,
   });
 
   final DemoSchool school;
@@ -56,6 +59,8 @@ class PreviewShell extends StatefulWidget {
   final Set<String> friendIds;
   final Future<void> Function(String) onAddFriend;
   final StudentPreferences preferences;
+  final ImportedSchoolCalendar? calendar;
+  final Future<void> Function(ImportedSchoolCalendar?) onSaveCalendar;
   final Future<void> Function(StudentPreferences) onSavePreferences;
   final bool ucInterest;
   final Future<void> Function(bool value) onUcInterestChanged;
@@ -123,6 +128,8 @@ class _PreviewShellState extends State<PreviewShell> {
         school: school,
         ucInterest: widget.ucInterest,
         completedByRequirement: widget.completedByRequirement,
+        calendar: widget.calendar,
+        onSaveCalendar: widget.onSaveCalendar,
         onAdjustCompleted: (requirement, next) => _save(
           () => widget.onAdjustRequirementCompleted(requirement, next),
           'Could not save requirement progress. Try again.',

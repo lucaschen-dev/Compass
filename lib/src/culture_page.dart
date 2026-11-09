@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'school_demo.dart';
+import 'course_catalog.dart';
 
 class CulturePage extends StatelessWidget {
   const CulturePage({
@@ -135,6 +136,8 @@ class CulturePage extends StatelessWidget {
                       ),
                     ],
                   ],
+                  const SizedBox(height: 32),
+                  CourseCatalog(school: school),
                 ],
               ),
             ),

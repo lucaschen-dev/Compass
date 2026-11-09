@@ -2,6 +2,8 @@ import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 
 import 'school_demo.dart';
+import 'school_calendar_card.dart';
+import 'school_calendar_data.dart';
 
 class DemoHomePage extends StatelessWidget {
   const DemoHomePage({super.key, required this.school});
@@ -253,10 +255,14 @@ class DemoAcademicsPage extends StatefulWidget {
     required this.ucInterest,
     required this.completedByRequirement,
     required this.onAdjustCompleted,
+    required this.calendar,
+    required this.onSaveCalendar,
   });
 
   final DemoSchool school;
   final bool ucInterest;
+  final ImportedSchoolCalendar? calendar;
+  final Future<void> Function(ImportedSchoolCalendar?) onSaveCalendar;
   final Map<String, int> completedByRequirement;
   final Future<void> Function(DemoCreditRequirement requirement, int next)
   onAdjustCompleted;
@@ -266,8 +272,6 @@ class DemoAcademicsPage extends StatefulWidget {
 }
 
 class _DemoAcademicsPageState extends State<DemoAcademicsPage> {
-  var _query = '';
-
   int _completed(DemoCreditRequirement requirement) =>
       widget.completedByRequirement[requirement.id] ?? 0;
 
@@ -279,13 +283,6 @@ class _DemoAcademicsPageState extends State<DemoAcademicsPage> {
     final requirements = school.requirementsChecklist(
       ucInterest: widget.ucInterest,
     );
-    final courses = school.courses
-        .where(
-          (course) =>
-              course.title.toLowerCase().contains(_query) ||
-              course.subject.toLowerCase().contains(_query),
-        )
-        .toList();
 
     return _SchoolPage(
       school: school,
@@ -298,6 +295,13 @@ class _DemoAcademicsPageState extends State<DemoAcademicsPage> {
           ),
         ),
         const SizedBox(height: 18),
+        SchoolCalendarCard(
+          key: ValueKey(school.id),
+          schoolId: school.id,
+          calendar: widget.calendar,
+          onSaveCalendar: widget.onSaveCalendar,
+        ),
+        const SizedBox(height: 24),
         _RequirementsCard(
           title: 'Graduation Requirements',
           subtitle: widget.ucInterest
@@ -309,28 +313,6 @@ class _DemoAcademicsPageState extends State<DemoAcademicsPage> {
           completedFor: _completed,
           onAdjust: widget.onAdjustCompleted,
         ),
-        const SizedBox(height: 24),
-        const _SectionHeading('Course catalog'),
-        const SizedBox(height: 10),
-        TextField(
-          decoration: const InputDecoration(
-            labelText: 'Search courses',
-            hintText: 'Course title or subject',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-          ),
-          textInputAction: TextInputAction.search,
-          onChanged: (value) => setState(() {
-            _query = value.trim().toLowerCase();
-          }),
-        ),
-        const SizedBox(height: 12),
-        if (courses.isEmpty) const Text('No courses match your search.'),
-        for (final course in courses)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _CourseCard(course),
-          ),
       ],
     );
   }
@@ -478,24 +460,30 @@ class _RequirementProgressRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  progressLabel,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: met ? colors.primary : null,
-                    fontWeight: met ? FontWeight.w600 : null,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    progressLabel,
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: met ? colors.primary : null,
+                      fontWeight: met ? FontWeight.w600 : null,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  met ? 'Complete' : 'Need ${requirement.amountLabel(needed)}',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: met ? colors.primary : colors.onSurfaceVariant,
+                  const SizedBox(height: 2),
+                  Text(
+                    met
+                        ? 'Complete'
+                        : 'Need ${requirement.amountLabel(needed)}',
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: met ? colors.primary : colors.onSurfaceVariant,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -562,48 +550,6 @@ class _CreditRow extends StatelessWidget {
         const SizedBox(width: 12),
         Text('$credits $unit', style: style),
       ],
-    );
-  }
-}
-
-class _CourseCard extends StatelessWidget {
-  const _CourseCard(this.course);
-
-  final DemoCourse course;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final creditLabel = course.credits == 1 ? 'credit' : 'credits';
-
-    return _SchoolCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeading(course.title),
-          const SizedBox(height: 5),
-          Text(
-            '${course.subject} · ${course.credits} $creditLabel',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            course.description,
-            style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            course.prerequisites.isEmpty
-                ? 'No prerequisites'
-                : 'Prerequisites: ${course.prerequisites.join(', ')}',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

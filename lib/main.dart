@@ -5,6 +5,7 @@ import 'src/compass_welcome.dart';
 import 'src/preview_shell.dart';
 import 'src/preview_theme.dart';
 import 'src/recommendations.dart';
+import 'src/school_calendar_data.dart';
 import 'src/school_demo.dart';
 
 const _selectedSchoolKey = 'compass.preview.selectedSchool';
@@ -38,6 +39,7 @@ Future<void> main() async {
         _selectedSchoolKey,
         for (final school in demoSchools) ...{
           studentPreferencesKey(school),
+          schoolCalendarKey(school.id),
           for (final item in school.guide) _cultureReadKey(school, item.id),
           for (final person in school.classmates) _friendKey(school, person.id),
           _ucInterestKey(school),
@@ -73,6 +75,7 @@ class _CompassAppState extends State<CompassApp> {
   final _readIdsBySchool = <String, Set<String>>{};
   final _friendIdsBySchool = <String, Set<String>>{};
   final _preferencesBySchool = <String, StudentPreferences>{};
+  final _calendarsBySchool = <String, ImportedSchoolCalendar?>{};
   final _ucInterestBySchool = <String, bool>{};
   final _completedBySchool = <String, Map<String, int>>{};
 
@@ -81,6 +84,9 @@ class _CompassAppState extends State<CompassApp> {
     super.initState();
     final saved = widget.saved;
     for (final school in demoSchools) {
+      _calendarsBySchool[school.id] = ImportedSchoolCalendar.fromStorage(
+        saved[schoolCalendarKey(school.id)],
+      );
       _preferencesBySchool[school.id] = StudentPreferences.fromStorage(
         saved[studentPreferencesKey(school)],
         school,
@@ -100,8 +106,7 @@ class _CompassAppState extends State<CompassApp> {
         for (final person in school.classmates)
           if (saved[_friendKey(school, person.id)] == true) person.id,
       };
-      _ucInterestBySchool[school.id] =
-          saved[_ucInterestKey(school)] == true;
+      _ucInterestBySchool[school.id] = saved[_ucInterestKey(school)] == true;
       _completedBySchool[school.id] = {
         for (final id in _requirementIdsFor(school))
           if (saved[_requirementCompletedKey(school, id)] case final Object raw)
@@ -202,10 +207,7 @@ class _CompassAppState extends State<CompassApp> {
               ucInterest: _ucInterestBySchool[school.id] ?? false,
             )
             .where((item) => item.countsTowardCourseTotal)
-            .fold<int>(
-              0,
-              (sum, item) => sum + (completed[item.id] ?? 0),
-            );
+            .fold<int>(0, (sum, item) => sum + (completed[item.id] ?? 0));
         final totalKey = _requirementCompletedKey(school, totalRequirement.id);
         final currentTotal = completed[totalRequirement.id] ?? 0;
         final fromSubjects = courseSum.clamp(0, totalRequirement.maxTracked);
@@ -236,6 +238,24 @@ class _CompassAppState extends State<CompassApp> {
       // https://pub.dev/packages/shared_preferences#sharedpreferencesasync
       await widget.preferences.setString(key, next.toStorage());
       if (mounted) setState(() => _preferencesBySchool[school.id] = next);
+    } finally {
+      _pendingWrites.remove(key);
+    }
+  }
+
+  Future<void> _saveCalendar(
+    DemoSchool school,
+    ImportedSchoolCalendar? calendar,
+  ) async {
+    final key = schoolCalendarKey(school.id);
+    if (!_pendingWrites.add(key)) throw StateError('Calendar is being saved.');
+    try {
+      if (calendar == null) {
+        await widget.preferences.remove(key);
+      } else {
+        await widget.preferences.setString(key, calendar.toStorage());
+      }
+      if (mounted) setState(() => _calendarsBySchool[school.id] = calendar);
     } finally {
       _pendingWrites.remove(key);
     }
@@ -286,6 +306,8 @@ class _CompassAppState extends State<CompassApp> {
           onAddFriend: (id) => _addFriend(school, id),
           preferences: _preferencesBySchool[school.id]!,
           onSavePreferences: (next) => _savePreferences(school, next),
+          calendar: _calendarsBySchool[school.id],
+          onSaveCalendar: (next) => _saveCalendar(school, next),
           ucInterest: _ucInterestBySchool[school.id] ?? false,
           onUcInterestChanged: (value) => _setUcInterest(school, value),
           completedByRequirement: _completedBySchool[school.id]!,
