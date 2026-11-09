@@ -1,3 +1,5 @@
+import 'demo_activities.dart';
+
 class DemoPerson {
   const DemoPerson({
     required this.id,
@@ -61,6 +63,8 @@ class DemoSchool {
     required this.courses,
     this.graduationRequirements = highSchoolGraduationRequirements,
     this.ucRequirements = ucAdmissionRequirements,
+    this.clubs = const [],
+    this.events = const [],
   });
 
   final String id;
@@ -75,6 +79,8 @@ class DemoSchool {
   final List<DemoCourse> courses;
   final List<DemoCreditRequirement> graduationRequirements;
   final List<DemoCreditRequirement> ucRequirements;
+  final List<DemoActivity> clubs;
+  final List<DemoActivity> events;
 
   DemoPerson classmate(String id) =>
       classmates.firstWhere((person) => person.id == id);
@@ -407,6 +413,8 @@ const _alderlineConversations = [
 const demoSchools = [
   DemoSchool(
     id: 'alderline',
+    clubs: alderlineClubs,
+    events: alderlineEvents,
     name: 'Alderline High School',
     location: 'North Wren Valley',
     initials: 'AH',
@@ -485,6 +493,8 @@ const demoSchools = [
   ),
   DemoSchool(
     id: 'cedarbrook',
+    clubs: cedarbrookClubs,
+    events: cedarbrookEvents,
     name: 'Cedarbrook High School',
     location: 'Foxwillow Bay',
     initials: 'CH',
