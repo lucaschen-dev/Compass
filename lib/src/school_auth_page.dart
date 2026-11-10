@@ -23,6 +23,7 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
       _password = TextEditingController(),
       _confirm = TextEditingController(),
       _name = TextEditingController();
+  final _emailFocus = FocusNode();
   _AuthStep _step = _AuthStep.login;
   int _grade = 11;
   bool _busy = false, _hidden = true;
@@ -33,6 +34,7 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
     _password.dispose();
     _confirm.dispose();
     _name.dispose();
+    _emailFocus.dispose();
     super.dispose();
   }
 
@@ -109,21 +111,37 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
   );
   Widget _schoolEmail() => _field(
     'School email',
-    DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
+    AnimatedBuilder(
+      animation: _emailFocus,
+      builder: (context, child) => AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _emailFocus.hasFocus
+                ? Theme.of(context).colorScheme.onSurfaceVariant
+                      .withValues(alpha: .35)
+                : Colors.transparent,
+          ),
+        ),
+        child: child,
       ),
       child: Row(
         children: [
           Expanded(
             child: TextField(
               controller: _email,
+              focusNode: _emailFocus,
               autocorrect: false,
               keyboardType: TextInputType.emailAddress,
               decoration: const InputDecoration(
                 hintText: 'Username',
                 semanticCounterText: 'School email username',
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
               ),
               onSubmitted: (_) {
                 if (_step == _AuthStep.login) _login();
