@@ -24,6 +24,7 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
       _confirm = TextEditingController(),
       _name = TextEditingController();
   final _emailFocus = FocusNode();
+  final _nameFocus = FocusNode();
   _AuthStep _step = _AuthStep.login;
   int _grade = 11;
   bool _busy = false, _hidden = true;
@@ -35,13 +36,18 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
     _confirm.dispose();
     _name.dispose();
     _emailFocus.dispose();
+    _nameFocus.dispose();
     super.dispose();
   }
 
-  void _go(_AuthStep step) => setState(() {
-    _step = step;
-    _error = null;
-  });
+  void _go(_AuthStep step) {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _step = step;
+      _error = null;
+    });
+  }
+
   Future<void> _login() async {
     if (_busy) return;
     setState(() {
@@ -102,6 +108,7 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
   }
 
   Widget _field(String label, Widget child) => Column(
+    key: ValueKey('school-auth-$label'),
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(label, style: Theme.of(context).textTheme.titleSmall),
@@ -274,6 +281,11 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                               'Full name',
                               TextField(
                                 controller: _name,
+                                focusNode: _nameFocus,
+                                autofocus: true,
+                                keyboardType: TextInputType.name,
+                                autofillHints: const [AutofillHints.name],
+                                autocorrect: false,
                                 textCapitalization: TextCapitalization.words,
                                 maxLength: 60,
                                 decoration: const InputDecoration(
