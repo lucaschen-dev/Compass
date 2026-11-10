@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/compass_welcome.dart';
+import 'src/calendar_storage.dart';
+import 'src/app_ui.dart';
+import 'src/local_accounts.dart';
+import 'src/community_models.dart';
+import 'src/school_auth_page.dart';
 import 'src/preview_shell.dart';
 import 'src/preview_theme.dart';
 import 'src/recommendations.dart';
@@ -34,22 +39,24 @@ Future<void> main() async {
   final preferences = SharedPreferencesAsync();
   Map<String, Object?> saved = {};
   try {
-    saved = await preferences.getAll(
-      allowList: {
-        _selectedSchoolKey,
-        for (final school in demoSchools) ...{
-          studentPreferencesKey(school),
-          schoolCalendarKey(school.id),
-          for (final item in school.guide) _cultureReadKey(school, item.id),
-          for (final person in school.classmates) _friendKey(school, person.id),
-          _ucInterestKey(school),
-          for (final id in _requirementIdsFor(school))
-            _requirementCompletedKey(school, id),
-          if (school.id == 'alderline')
-            for (final item in school.guide) _legacyCultureReadKey(item.id),
-        },
-      },
-    );
+    final all = await preferences.getAll();
+    saved = {
+      for (final entry in all.entries)
+        if (entry.key.startsWith('compass.preview.')) entry.key: entry.value,
+    };
+    for (final school in demoSchools) {
+      final accounts = LocalAccounts(
+        preferences,
+        school,
+        saved[accountStoreKey(school)],
+      );
+      final account = accounts.find(
+        saved['compass.preview.${school.id}.session'] as String? ?? '',
+      );
+      if (account != null) {
+        await migrateAccountCalendar(preferences, saved, school, account);
+      }
+    }
   } catch (error) {
     debugPrint('Could not load saved Compass preview data: $error');
   }
@@ -70,12 +77,16 @@ class CompassApp extends StatefulWidget {
 class _CompassAppState extends State<CompassApp> {
   ThemeMode _themeMode = ThemeMode.system;
   DemoSchool? _school;
+  LocalAccount? _account;
+  final _accountsBySchool = <String, LocalAccounts>{};
+  final _communities = <String, CommunityController>{};
+  late final Map<String, Object?> _stored;
   bool _choosingSchool = false;
   final _pendingWrites = <String>{};
   final _readIdsBySchool = <String, Set<String>>{};
   final _friendIdsBySchool = <String, Set<String>>{};
   final _preferencesBySchool = <String, StudentPreferences>{};
-  final _calendarsBySchool = <String, ImportedSchoolCalendar?>{};
+  final _calendarsByAccount = <String, ImportedSchoolCalendar?>{};
   final _ucInterestBySchool = <String, bool>{};
   final _completedBySchool = <String, Map<String, int>>{};
 
@@ -83,10 +94,27 @@ class _CompassAppState extends State<CompassApp> {
   void initState() {
     super.initState();
     final saved = widget.saved;
+    _stored = Map.of(saved);
+    _themeMode =
+        ThemeMode.values
+            .where((m) => m.name == saved['compass.preview.theme'])
+            .firstOrNull ??
+        ThemeMode.system;
     for (final school in demoSchools) {
-      _calendarsBySchool[school.id] = ImportedSchoolCalendar.fromStorage(
-        saved[schoolCalendarKey(school.id)],
+      _accountsBySchool[school.id] = LocalAccounts(
+        widget.preferences,
+        school,
+        saved[accountStoreKey(school)],
       );
+      final account = _accountsBySchool[school.id]!.find(
+        saved['compass.preview.${school.id}.session'] as String? ?? '',
+      );
+      if (account != null) {
+        final key = accountCalendarKey(school, account);
+        _calendarsByAccount[key] = ImportedSchoolCalendar.fromStorage(
+          saved[key],
+        );
+      }
       _preferencesBySchool[school.id] = StudentPreferences.fromStorage(
         saved[studentPreferencesKey(school)],
         school,
@@ -116,6 +144,55 @@ class _CompassAppState extends State<CompassApp> {
               id: raw.toInt().clamp(0, 99),
       };
     }
+    if (_school case final school?) {
+      _account = _accountsBySchool[school.id]!.find(
+        saved['compass.preview.${school.id}.session'] as String? ?? '',
+      );
+      if (_account == null) _school = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _communities.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  CommunityController _community(DemoSchool school, LocalAccount account) {
+    final key = communityStoreKey(school, account);
+    return _communities.putIfAbsent(
+      key,
+      () => CommunityController(
+        school: school,
+        account: account,
+        saved: _stored[key],
+        write: (value) async {
+          await widget.preferences.setString(key, value);
+          _stored[key] = value;
+        },
+      ),
+    );
+  }
+
+  Future<void> _setTheme(ThemeMode mode) async {
+    await widget.preferences.setString('compass.preview.theme', mode.name);
+    if (mounted) setState(() => _themeMode = mode);
+  }
+
+  Future<void> _logout() async {
+    if (_school case final school?) {
+      await widget.preferences.remove('compass.preview.${school.id}.session');
+      _stored.remove('compass.preview.${school.id}.session');
+    }
+    await widget.preferences.remove(_selectedSchoolKey);
+    if (mounted) {
+      setState(() {
+        _account = null;
+        _school = null;
+      });
+    }
   }
 
   Future<void> _chooseSchool(BuildContext context) async {
@@ -124,16 +201,50 @@ class _CompassAppState extends State<CompassApp> {
     try {
       final school = await Navigator.of(context).push<DemoSchool>(
         MaterialPageRoute(
-          builder: (_) => _SchoolPicker(
-            currentSchool: _school,
-            appearanceAction: _appearanceAction(),
-          ),
+          builder: (_) => _SchoolPicker(currentSchool: _school),
         ),
       );
-      if (!mounted || school == null || _school?.id == school.id) return;
-      setState(() => _school = school);
+      if (!mounted || school == null) return;
+      if (!context.mounted) return;
+      final existing = _accountsBySchool[school.id]!.find(
+        _stored['compass.preview.${school.id}.session'] as String? ?? '',
+      );
+      final account =
+          existing ??
+          await Navigator.of(context).push<LocalAccount>(
+            MaterialPageRoute(
+              builder: (_) => SchoolAuthPage(
+                school: school,
+                accounts: _accountsBySchool[school.id]!,
+              ),
+            ),
+          );
+      if (!mounted || account == null) return;
       try {
+        await migrateAccountCalendar(
+          widget.preferences,
+          _stored,
+          school,
+          account,
+        );
+        _calendarsByAccount[accountCalendarKey(
+          school,
+          account,
+        )] = ImportedSchoolCalendar.fromStorage(
+          _stored[accountCalendarKey(school, account)],
+        );
+        await widget.preferences.setString(
+          'compass.preview.${school.id}.session',
+          account.email,
+        );
         await widget.preferences.setString(_selectedSchoolKey, school.id);
+        _stored['compass.preview.${school.id}.session'] = account.email;
+        if (mounted) {
+          setState(() {
+            _school = school;
+            _account = account;
+          });
+        }
       } catch (error) {
         debugPrint('Could not save selected school: $error');
         if (!context.mounted) return;
@@ -245,38 +356,19 @@ class _CompassAppState extends State<CompassApp> {
 
   Future<void> _saveCalendar(
     DemoSchool school,
+    LocalAccount account,
     ImportedSchoolCalendar? calendar,
   ) async {
-    final key = schoolCalendarKey(school.id);
+    final key = accountCalendarKey(school, account);
     if (!_pendingWrites.add(key)) throw StateError('Calendar is being saved.');
     try {
-      if (calendar == null) {
-        await widget.preferences.remove(key);
-      } else {
-        await widget.preferences.setString(key, calendar.toStorage());
-      }
-      if (mounted) setState(() => _calendarsBySchool[school.id] = calendar);
+      await widget.preferences.setString(key, calendar?.toStorage() ?? 'null');
+      _stored[key] = calendar?.toStorage() ?? 'null';
+      if (mounted) setState(() => _calendarsByAccount[key] = calendar);
     } finally {
       _pendingWrites.remove(key);
     }
   }
-
-  Widget _appearanceAction() => Builder(
-    builder: (context) {
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      return IconButton(
-        tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
-        icon: Icon(
-          isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-        ),
-        onPressed: () {
-          setState(
-            () => _themeMode = isDark ? ThemeMode.light : ThemeMode.dark,
-          );
-        },
-      );
-    },
-  );
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -288,26 +380,29 @@ class _CompassAppState extends State<CompassApp> {
     home: Builder(
       builder: (context) {
         final school = _school;
-        if (school == null) {
-          return CompassWelcome(
-            appearanceAction: _appearanceAction(),
-            onFindSchool: () => _chooseSchool(context),
-          );
+        final account = _account;
+        if (school == null || account == null) {
+          return CompassWelcome(onFindSchool: () => _chooseSchool(context));
         }
         return PreviewShell(
           key: ValueKey(school.id),
           school: school,
           onSwitchSchool: () => _chooseSchool(context),
           themeMode: _themeMode,
-          onChangeTheme: (mode) => setState(() => _themeMode = mode),
+          onChangeTheme: _setTheme,
+          onLogout: _logout,
+          community: _community(school, account),
+          accountEmail: account.email,
+          localPreferences: widget.preferences,
+          initialSaved: _stored,
           cultureReadIds: _readIdsBySchool[school.id]!,
           onToggleCultureRead: (id) => _toggleCultureRead(school, id),
           friendIds: _friendIdsBySchool[school.id]!,
           onAddFriend: (id) => _addFriend(school, id),
           preferences: _preferencesBySchool[school.id]!,
           onSavePreferences: (next) => _savePreferences(school, next),
-          calendar: _calendarsBySchool[school.id],
-          onSaveCalendar: (next) => _saveCalendar(school, next),
+          calendar: _calendarsByAccount[accountCalendarKey(school, account)],
+          onSaveCalendar: (next) => _saveCalendar(school, account, next),
           ucInterest: _ucInterestBySchool[school.id] ?? false,
           onUcInterestChanged: (value) => _setUcInterest(school, value),
           completedByRequirement: _completedBySchool[school.id]!,
@@ -320,98 +415,71 @@ class _CompassAppState extends State<CompassApp> {
 }
 
 class _SchoolPicker extends StatefulWidget {
-  const _SchoolPicker({
-    required this.currentSchool,
-    required this.appearanceAction,
-  });
-
+  const _SchoolPicker({required this.currentSchool});
   final DemoSchool? currentSchool;
-  final Widget appearanceAction;
-
   @override
   State<_SchoolPicker> createState() => _SchoolPickerState();
 }
 
 class _SchoolPickerState extends State<_SchoolPicker> {
   String _query = '';
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final results = demoSchools.where(
-      (school) =>
-          '${school.name} ${school.location}'.toLowerCase().contains(_query),
-    );
-
+    final results =
+        demoSchools
+            .where(
+              (school) => '${school.name} ${school.location}'
+                  .toLowerCase()
+                  .contains(_query),
+            )
+            .toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
     return Scaffold(
-      appBar: AppBar(actions: [widget.appearanceAction]),
+      appBar: AppBar(),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Semantics(
-                    header: true,
-                    child: Text(
-                      'Find your school',
-                      style: theme.textTheme.headlineLarge,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Choose a fictional campus to explore.',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    decoration: const InputDecoration(
-                      labelText: 'Search schools',
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                    onChanged: (query) =>
-                        setState(() => _query = query.trim().toLowerCase()),
-                  ),
-                  const SizedBox(height: 16),
-                  if (results.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Text('No matching schools. Try another name.'),
-                    ),
-                  for (final school in results)
-                    Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        leading: CircleAvatar(
-                          backgroundColor: colors.primaryContainer,
-                          foregroundColor: colors.onPrimaryContainer,
-                          child: ExcludeSemantics(child: Text(school.initials)),
-                        ),
-                        title: Text(school.name),
-                        subtitle: Text(school.location),
-                        selected: school.id == widget.currentSchool?.id,
-                        trailing: Icon(
-                          school.id == widget.currentSchool?.id
-                              ? Icons.check
-                              : Icons.chevron_right,
-                        ),
-                        onTap: () => Navigator.of(context).pop(school),
-                      ),
-                    ),
-                ],
-              ),
+        top: false,
+        child: ContentColumn(
+          maxWidth: 560,
+          children: [
+            Text(
+              'Find your school',
+              style: Theme.of(context).textTheme.headlineLarge,
             ),
-          ),
+            const SizedBox(height: 28),
+            TextField(
+              decoration: const InputDecoration(
+                hintText: 'Search schools',
+                prefixIcon: Icon(Icons.search_rounded),
+              ),
+              onChanged: (value) =>
+                  setState(() => _query = value.trim().toLowerCase()),
+            ),
+            const SizedBox(height: 32),
+            if (results.isEmpty) const Text('No schools found.'),
+            for (var i = 0; i < results.length; i++) ...[
+              if (i == 0 || results[i].name[0] != results[i - 1].name[0])
+                Padding(
+                  padding: const EdgeInsets.only(top: 16, bottom: 12),
+                  child: Text(
+                    results[i].name[0],
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              const Divider(),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                leading: SchoolMark(school: results[i], size: 42),
+                title: Text(
+                  shortSchoolName(results[i]),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, results[i]),
+              ),
+            ],
+          ],
         ),
       ),
     );

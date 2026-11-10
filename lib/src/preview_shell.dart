@@ -1,32 +1,30 @@
-import 'dart:ui' show ImageFilter, SemanticsRole;
+import 'dart:ui' show lerpDouble;
 
-import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_ui.dart';
+import 'community_feed.dart';
+import 'community_models.dart';
+import 'community_profile.dart';
 import 'culture_page.dart';
 import 'demo_chat_page.dart';
-import 'for_you_page.dart';
+import 'live_calendar_service.dart';
 import 'recommendations.dart';
 import 'school_calendar_data.dart';
 import 'school_demo.dart';
 import 'school_pages.dart';
 
 enum _Destination {
-  home('Home', CupertinoIcons.house, CupertinoIcons.house_fill),
-  forYou('For you', CupertinoIcons.heart, CupertinoIcons.heart_fill),
-  culture('Guide', CupertinoIcons.list_bullet, CupertinoIcons.list_bullet),
-  chat(
-    'Chat',
-    CupertinoIcons.bubble_left_bubble_right,
-    CupertinoIcons.bubble_left_bubble_right_fill,
-  ),
-  academics('Courses', CupertinoIcons.calendar, CupertinoIcons.calendar);
+  home('Home', CupertinoIcons.house),
+  guide('Guide', CupertinoIcons.book),
+  chat('Chat', CupertinoIcons.chat_bubble),
+  courses('Courses', CupertinoIcons.calendar);
 
-  const _Destination(this.label, this.icon, this.selectedIcon);
-
+  const _Destination(this.label, this.icon);
   final String label;
   final IconData icon;
-  final IconData selectedIcon;
 }
 
 class PreviewShell extends StatefulWidget {
@@ -48,311 +46,291 @@ class PreviewShell extends StatefulWidget {
     required this.onAdjustRequirementCompleted,
     required this.calendar,
     required this.onSaveCalendar,
+    required this.community,
+    required this.accountEmail,
+    required this.onLogout,
+    required this.localPreferences,
+    required this.initialSaved,
   });
-
   final DemoSchool school;
   final VoidCallback onSwitchSchool;
   final ThemeMode themeMode;
-  final ValueChanged<ThemeMode> onChangeTheme;
-  final Set<String> cultureReadIds;
-  final Future<void> Function(String) onToggleCultureRead;
-  final Set<String> friendIds;
-  final Future<void> Function(String) onAddFriend;
+  final Future<void> Function(ThemeMode) onChangeTheme;
+  final Set<String> cultureReadIds, friendIds;
+  final Future<void> Function(String) onToggleCultureRead, onAddFriend;
   final StudentPreferences preferences;
-  final ImportedSchoolCalendar? calendar;
-  final Future<void> Function(ImportedSchoolCalendar?) onSaveCalendar;
   final Future<void> Function(StudentPreferences) onSavePreferences;
   final bool ucInterest;
-  final Future<void> Function(bool value) onUcInterestChanged;
+  final Future<void> Function(bool) onUcInterestChanged;
   final Map<String, int> completedByRequirement;
-  final Future<void> Function(DemoCreditRequirement requirement, int next)
+  final Future<void> Function(DemoCreditRequirement, int)
   onAdjustRequirementCompleted;
-
+  final ImportedSchoolCalendar? calendar;
+  final Future<void> Function(ImportedSchoolCalendar?) onSaveCalendar;
+  final CommunityController community;
+  final String accountEmail;
+  final Future<void> Function() onLogout;
+  final SharedPreferencesAsync localPreferences;
+  final Map<String, Object?> initialSaved;
   @override
   State<PreviewShell> createState() => _PreviewShellState();
 }
 
-class _PreviewShellState extends State<PreviewShell> {
-  var _selected = _Destination.home;
-
-  void _select(_Destination destination) {
-    setState(() => _selected = destination);
-  }
-
-  void _openProfile() {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(),
-          body: SafeArea(
-            top: false,
-            child: DemoProfilePage(
-              school: widget.school,
-              ucInterest: widget.ucInterest,
-              onUcInterestChanged: (value) => _save(
-                () => widget.onUcInterestChanged(value),
-                'Could not save UC interest. Try again.',
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _save(
-    Future<void> Function() action,
-    String errorMessage,
-  ) async {
-    try {
-      await action();
-    } catch (_) {
+class _PreviewShellState extends State<PreviewShell>
+    with SingleTickerProviderStateMixin {
+  _Destination _selected = _Destination.home;
+  late final _arrival = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1900),
+  );
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(errorMessage)));
-    }
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _arrival.value = 1;
+      } else {
+        _arrival.forward();
+      }
+    });
   }
 
   @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final school = widget.school;
-    final page = switch (_selected) {
-      _Destination.home => DemoHomePage(school: school),
-      _Destination.forYou => ForYouPage(
-        school: school,
-        preferences: widget.preferences,
-        onSavePreferences: widget.onSavePreferences,
-      ),
-      _Destination.academics => DemoAcademicsPage(
-        school: school,
-        ucInterest: widget.ucInterest,
-        completedByRequirement: widget.completedByRequirement,
-        calendar: widget.calendar,
-        onSaveCalendar: widget.onSaveCalendar,
-        onAdjustCompleted: (requirement, next) => _save(
-          () => widget.onAdjustRequirementCompleted(requirement, next),
-          'Could not save requirement progress. Try again.',
-        ),
-      ),
-      _Destination.culture => CulturePage(
-        school: school,
-        readIds: widget.cultureReadIds,
-        onToggleRead: (id) => _save(
-          () => widget.onToggleCultureRead(id),
-          'Could not save reading progress. Try again.',
-        ),
-      ),
-      _Destination.chat => DemoChatPage(
-        school: school,
-        friendIds: widget.friendIds,
-        onAddFriend: (id) => _save(
-          () => widget.onAddFriend(id),
-          'Could not add this friend. Try again.',
-        ),
-      ),
-    };
+  void dispose() {
+    _arrival.dispose();
+    super.dispose();
+  }
 
-    // https://docs.flutter.dev/ui/adaptive-responsive/general#step-3-branch
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 600;
-        final extended = constraints.maxWidth >= 900;
-        final floatOverFeed = !wide && _selected == _Destination.home;
-        return Scaffold(
-          // Home adds the dock inset to its scrollable content padding.
-          // https://api.flutter.dev/flutter/material/Scaffold/extendBody.html
-          extendBody: floatOverFeed,
-          appBar: AppBar(
-            toolbarHeight: 52,
-            leadingWidth: 65,
-            leading: Center(
-              child: IconButton(
-                tooltip: 'Profile',
-                onPressed: _openProfile,
-                icon: const Icon(CupertinoIcons.person_crop_circle, size: 24),
-                style: IconButton.styleFrom(
-                  backgroundColor: colors.surface.withValues(alpha: .78),
-                  side: BorderSide(
-                    color: colors.outlineVariant.withValues(alpha: .55),
-                  ),
+  void _profile() => Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => CommunityProfilePage(
+        c: widget.community,
+        email: widget.accountEmail,
+        themeMode: widget.themeMode,
+        onChangeTheme: widget.onChangeTheme,
+        onLogout: widget.onLogout,
+        onSwitchSchool: widget.onSwitchSchool,
+      ),
+    ),
+  );
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.community,
+    builder: (context, _) {
+      final colors = Theme.of(context).colorScheme;
+      final page = switch (_selected) {
+        _Destination.home => CommunityFeed(
+          community: widget.community,
+          preferences: widget.preferences,
+          onSavePreferences: widget.onSavePreferences,
+        ),
+        _Destination.guide => CulturePage(
+          school: widget.school,
+          readIds: widget.cultureReadIds,
+          onToggleRead: widget.onToggleCultureRead,
+        ),
+        _Destination.chat => DemoChatPage(
+          community: widget.community,
+          school: widget.school,
+          friendIds: widget.friendIds,
+          onAddFriend: widget.onAddFriend,
+        ),
+        _Destination.courses => DemoAcademicsPage(
+          school: widget.school,
+          ucInterest: widget.ucInterest,
+          completedByRequirement: widget.completedByRequirement,
+          calendar: widget.calendar,
+          onSaveCalendar: widget.onSaveCalendar,
+          onAdjustCompleted: widget.onAdjustRequirementCompleted,
+          onUcInterestChanged: widget.onUcInterestChanged,
+          promptCalendar:
+              widget.initialSaved[calendarPromptKey(
+                widget.school.id,
+                widget.accountEmail,
+              )] !=
+              true,
+          onCalendarPrompted: () async {
+            await widget.localPreferences.setBool(
+              calendarPromptKey(widget.school.id, widget.accountEmail),
+              true,
+            );
+            widget.initialSaved[calendarPromptKey(
+                  widget.school.id,
+                  widget.accountEmail,
+                )] =
+                true;
+          },
+        ),
+      };
+      return LayoutBuilder(
+        builder: (context, size) {
+          final wide = size.maxWidth >= 820;
+          final scaffold = Scaffold(
+            appBar: AppBar(
+              leadingWidth: 64,
+              leading: IconButton(
+                tooltip: 'Personal center',
+                onPressed: _profile,
+                icon: StudentAvatar(
+                  name: widget.community.profile.name,
+                  photo: widget.community.profile.avatar,
+                  radius: 18,
                 ),
               ),
+              centerTitle: true,
+              title: SizedBox(
+                width: wide ? 320 : 270,
+                child: SchoolBrand(school: widget.school, fontSize: 15),
+              ),
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(1),
+                child: Divider(color: colors.outlineVariant),
+              ),
             ),
-            actions: [
-              Padding(
-                padding: const EdgeInsetsDirectional.only(end: 15),
-                child: DecoratedBox(
-                  decoration: ShapeDecoration(
-                    color: colors.surface.withValues(alpha: .78),
-                    shape: StadiumBorder(
-                      side: BorderSide(
-                        color: colors.outlineVariant.withValues(alpha: .55),
-                      ),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Switch school',
-                        onPressed: widget.onSwitchSchool,
-                        icon: const Icon(
-                          CupertinoIcons.arrow_right_arrow_left,
-                          size: 20,
+            body: SafeArea(
+              top: false,
+              child: wide
+                  ? Row(
+                      children: [
+                        NavigationRail(
+                          backgroundColor: colors.surface,
+                          minWidth: 96,
+                          minExtendedWidth: 160,
+                          extended: size.maxWidth >= 1200,
+                          selectedIndex: _selected.index,
+                          onDestinationSelected: (i) => setState(
+                            () => _selected = _Destination.values[i],
+                          ),
+                          destinations: [
+                            for (final d in _Destination.values)
+                              NavigationRailDestination(
+                                icon: Icon(d.icon, size: 22),
+                                label: Text(d.label),
+                              ),
+                          ],
+                        ),
+                        VerticalDivider(width: 1, color: colors.outlineVariant),
+                        Expanded(child: page),
+                      ],
+                    )
+                  : page,
+            ),
+            bottomNavigationBar: wide
+                ? null
+                : CupertinoTheme(
+                    data: CupertinoThemeData(
+                      brightness: Theme.of(context).brightness,
+                      textTheme: const CupertinoTextThemeData(
+                        tabLabelTextStyle: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w300,
                         ),
                       ),
-                      PopupMenuButton<ThemeMode>(
-                        tooltip: 'Appearance',
-                        icon: const Icon(CupertinoIcons.ellipsis, size: 20),
-                        onSelected: widget.onChangeTheme,
-                        itemBuilder: (_) => [
-                          for (final mode in ThemeMode.values)
-                            CheckedPopupMenuItem(
-                              value: mode,
-                              checked: widget.themeMode == mode,
-                              child: Text(switch (mode) {
-                                ThemeMode.system => 'System appearance',
-                                ThemeMode.light => 'Light mode',
-                                ThemeMode.dark => 'Dark mode',
-                              }),
-                            ),
-                        ],
+                    ),
+                    child: CupertinoTabBar(
+                      currentIndex: _selected.index,
+                      onTap: (i) =>
+                          setState(() => _selected = _Destination.values[i]),
+                      activeColor: colors.primary,
+                      inactiveColor: colors.onSurfaceVariant,
+                      backgroundColor: colors.surface,
+                      border: Border(
+                        top: BorderSide(color: colors.outlineVariant),
                       ),
-                    ],
+                      height: 60,
+                      items: [
+                        for (final d in _Destination.values)
+                          BottomNavigationBarItem(
+                            icon: Icon(d.icon, size: 23),
+                            label: d.label,
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              ),
-            ],
-          ),
-          body: SafeArea(
-            top: false,
-            bottom: !floatOverFeed,
-            child: wide
-                ? Row(
-                    children: [
-                      NavigationRail(
-                        minExtendedWidth: 192,
-                        extended: extended,
-                        labelType: extended
-                            ? NavigationRailLabelType.none
-                            : NavigationRailLabelType.all,
-                        backgroundColor: colors.surface,
-                        leading: const SizedBox(height: 12),
-                        scrollable: true,
-                        selectedIndex: _selected.index,
-                        onDestinationSelected: (index) =>
-                            _select(_Destination.values[index]),
-                        destinations: [
-                          for (final destination in _Destination.values)
-                            NavigationRailDestination(
-                              icon: Icon(destination.icon),
-                              selectedIcon: Icon(destination.selectedIcon),
-                              label: Text(destination.label),
-                            ),
-                        ],
-                      ),
-                      VerticalDivider(width: 1, color: colors.outlineVariant),
-                      Expanded(child: page),
-                    ],
-                  )
-                : page,
-          ),
-          bottomNavigationBar: wide
-              ? null
-              : _PreviewDock(selected: _selected, onSelected: _select),
-        );
-      },
-    );
-  }
-}
-
-class _PreviewDock extends StatelessWidget {
-  const _PreviewDock({required this.selected, required this.onSelected});
-
-  final _Destination selected;
-  final ValueChanged<_Destination> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(32);
-
-    return SafeArea(
-      minimum: const EdgeInsets.fromLTRB(19, 4, 19, 12),
-      child: ClipRRect(
-        borderRadius: radius,
-        // Keep the blur clipped to the dock's shape.
-        // https://api.flutter.dev/flutter/widgets/BackdropFilter-class.html
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Material(
-            shape: RoundedRectangleBorder(
-              borderRadius: radius,
-              side: BorderSide(color: colors.outlineVariant),
-            ),
-            color: colors.surface.withValues(alpha: .82),
-            child: Padding(
-              padding: const EdgeInsets.all(3),
-              child: Semantics(
-                role: SemanticsRole.tabBar,
-                child: Row(
-                  children: [
-                    for (final destination in _Destination.values)
-                      Expanded(
-                        child: Semantics(
-                          role: SemanticsRole.tab,
-                          selected: destination == selected,
-                          child: Ink(
-                            decoration: ShapeDecoration(
-                              color: destination == selected
-                                  ? colors.onSurface.withValues(alpha: .1)
-                                  : Colors.transparent,
-                              shape: const StadiumBorder(),
-                            ),
-                            child: InkWell(
-                              customBorder: const StadiumBorder(),
-                              onTap: () => onSelected(destination),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 6,
+          );
+          return AnimatedBuilder(
+            animation: _arrival,
+            child: scaffold,
+            builder: (context, child) {
+              final phase = _arrival.value;
+              if (phase >= 1) return child!;
+              final move = Curves.easeInOutCubic.transform(
+                ((phase - .40) / .53).clamp(0.0, 1.0),
+              );
+              final fade = Curves.easeOut.transform(
+                ((phase - .77) / .23).clamp(0.0, 1.0),
+              );
+              final compassOpacity = (phase / .24).clamp(0.0, 1.0);
+              final schoolOpacity = ((phase - .20) / .24).clamp(0.0, 1.0);
+              return Stack(
+                children: [
+                  child!,
+                  Positioned.fill(
+                    child: AbsorbPointer(
+                      child: ColoredBox(
+                        color: colors.surface.withValues(alpha: 1 - fade),
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: lerpDouble(
+                                size.maxWidth / 2 - 78,
+                                size.maxWidth / 2 - 125,
+                                move,
+                              ),
+                              top: lerpDouble(size.maxHeight * .37, 16, move),
+                              child: Opacity(
+                                opacity: compassOpacity * (1 - fade),
+                                child: CompassWordmark(
+                                  size: lerpDouble(26, 15, move)!,
                                 ),
-                                child: Column(
+                              ),
+                            ),
+                            Positioned(
+                              left: lerpDouble(
+                                size.maxWidth / 2 - 64,
+                                size.maxWidth / 2 + 4,
+                                move,
+                              ),
+                              top: lerpDouble(
+                                size.maxHeight * .37 + 72,
+                                18,
+                                move,
+                              ),
+                              child: Opacity(
+                                opacity: schoolOpacity * (1 - fade),
+                                child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(
-                                      destination == selected
-                                          ? destination.selectedIcon
-                                          : destination.icon,
-                                      size: 23,
-                                      color: colors.onSurface,
+                                    SchoolMark(
+                                      school: widget.school,
+                                      size: lerpDouble(38, 21, move)!,
                                     ),
-                                    const SizedBox(height: 3),
+                                    const SizedBox(width: 8),
                                     Text(
-                                      destination.label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                      shortSchoolName(widget.school),
                                       style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: destination == selected
-                                            ? FontWeight.w600
-                                            : FontWeight.w400,
+                                        fontSize: lerpDouble(20, 15, move),
+                                        fontWeight: FontWeight.w300,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    },
+  );
 }

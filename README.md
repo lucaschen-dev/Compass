@@ -1,58 +1,60 @@
 # Compass
 
-Compass is a local Flutter school community app. Explore either of two fictional campuses, Alderline and Cedarbrook. Each has announcements, a campus guide, a searchable course catalog with credits and prerequisites, sample conversations, and a student profile.
+Compass is a Flutter school community demo for Alderline and Cedarbrook. The hosted preview is available at [Compass](https://compass-lucas.lucasinus.chatgpt.site). The Site is private to its owner and uses ChatGPT sign-in at the hosting boundary.
 
-Use **Find your school** to enter a campus and the arrows in the top bar to switch schools. The appearance menu offers system, light, and dark modes. Your selected school, guide reading progress, and added classmates are saved on the device or in the browser. The app uses sample data and runs locally without accounts or verification codes.
+## Experience
 
-Open **For you** to choose interests and a preferred meetup time. Compass recommends up to three sample peers, clubs, and events per category, showing the interests behind each match. More shared interests rank first; equal matches are ordered alphabetically. Meetup time filters clubs and events. Each school's preferences are saved separately, and **Reset** followed by **Save preferences** clears only that school's choices. All matching runs locally using fictional school data.
+- A minimal Compass welcome screen, a centered **Find Your School** button, and a searchable alphabetical school list.
+- School-specific demo login with a fixed email suffix. **First login** offers local demo account creation, password setup, and full-name/grade onboarding. Passwords are stored as salted PBKDF2-SHA256 hashes, never plaintext. Sessions survive refresh.
+- A school arrival animation fades in Compass and the school mark, then moves both into the Home header. Reduced-motion preferences are respected.
+- Four destinations: **Home**, **Guide**, **Chat**, and **Courses**. The personal center is at the upper left. Appearance settings live inside the personal center.
+- Home carries Latest and For you feeds, six post categories, category/subtag filters, keyword search, topic recommendations, comments, likes, saved posts, anonymous posts, targeted questions, priorities, gallery posts, and composer drafts. For example, follow **Clubs → Badminton** to recommend badminton posts. Existing interest/time preferences still recommend sample peers, clubs, and events.
+- A centered editable profile photo, full name, grade, bio, Posts/Saved/About sections, and settings.
+- Guide separates **Dress code**, **Grade**, **Faculty & classrooms**, **Campus life**, and **Course catalog**. Guide reading progress and course search remain available.
+- Chat includes direct/group conversations, search, unread/group/archive filters, drafts, quoted replies, editing, reactions, photo attachments, copy, delete-for-me, two-minute unsend, mute, pin, archive, and leaving/blocking a conversation. Messages and photos are local demo data; they are not delivered to other people. No calls, push delivery, or shared realtime messaging service is configured.
+- Courses provides **Month**, **Week**, and **Day** views, day agendas, calendar details, local ICS import, and folded **Graduation Requirements**. The existing manual requirement calculations are preserved.
 
-## School calendar and courses
+## Email service status
 
-**Courses** shows a month calendar above **Graduation Requirements**. Select a day to see its events, use the arrows to change months, or choose **Today**. Each demo school has separate sample events.
+No email/identity delivery provider has been configured. **Send setup email** and **Send reset email** explicitly report that no email was sent. The local demo account option is labeled as such and does not verify school membership. The two fictional schools use reserved `alderline.example` and `cedarbrook.example` suffixes; users cannot edit them.
 
-Use the calendar's **Import calendar** button to open an `.ics` file. Imports are saved locally under `compass.preview.<school-id>.calendar`; switching schools never shares an import. **Use sample calendar** removes only the current school's import. The searchable **Course catalog** is at the bottom of **Guide**, with credits and prerequisites preserved.
+Real school access requires an identity provider, verified school-domain configuration, actual setup/recovery email delivery, and server-enforced membership. The local demo login must not be treated as production authentication.
 
-Calendar integration uses `enough_icalendar` to parse iCalendar, bundled `timezone` data for timed events, and Flutter's `file_selector` for local imports. A `webcal://` subscription can supply its ICS document over HTTPS; this app imports that document instead of embedding a private feed URL, using a Google Calendar API, or relying on a third-party proxy. Personal feed URLs and events are not included in source or app assets. Refresh a snapshot by importing a newer export; this is not a live subscription.
+## Calendar subscriptions
 
-The importer supports expanded all-day and timed events, including exclusive end dates and cancelled/revised entries. It rejects event recurrence rules and overrides rather than displaying incomplete results; export those as individual occurrences. Timezone transition rules are handled separately and are not treated as events. Imports are limited to 512 KB and 2,000 events.
+On the first visit to Courses, Compass asks for the student's own private WebCal/HTTPS link. Connecting succeeds only after a valid feed is fetched and saved. It refreshes when Courses opens or resumes and every 15 minutes while that page remains open; it does not run a background service after the app closes. Manual refresh is also available. If an update fails, the last successful snapshot remains visible. A file import is a snapshot until a subscription is connected.
 
-Calendar browsing and imports do not change graduation progress. Automatic event-to-course matching for `requirementsChecklist` is future work.
+The hosted app fetches calendars through a same-origin Cloudflare Worker, avoiding browser CORS restrictions. The gateway requires the hosting platform's authenticated identity, permits only known hosted calendar providers, rejects redirects and non-HTTPS destinations, limits request/feed sizes, applies a timeout, forwards no visitor credentials, and returns `private, no-store`. Native builds can fetch the same allowed HTTPS providers directly. Supported providers are MySchoolApp, Google Calendar, Outlook, and public iCloud calendar hosts. Other providers can use file import until explicitly supported.
 
-## Set up
+Imports are limited to 512 KB and 2,000 expanded events. The parser handles all-day exclusive end dates, timed events, IANA timezones, cancellations, revised entries, folded text, and escaped HTML entities. Recurring event rules/overrides must currently be exported as individual occurrences. Timezone transition rules are not calendar events.
 
-Install Flutter, then run this command from the project directory.
+Private subscription URLs and ICS snapshots stay in the browser's school- and account-scoped local storage and are never bundled into source or published assets. Calendar content is fetched on demand and is not retained by the gateway. Keep subscription URLs private. Disconnecting retains a snapshot; **Use sample calendar** removes the current account's import.
+
+Calendar events do not automatically change requirement completion. Event-to-course matching for `requirementsChecklist` remains future work.
+
+## Data separation
+
+Storage follows `compass.preview.<school-id>...`. Existing school guide, friend, requirement, preference, and calendar keys are preserved. New profile/post/chat/topic/calendar data is additionally scoped to each demo account. A pre-login calendar is migrated to the first local account only; resetting it does not restore legacy data. Appearance is an app preference. Local storage belongs to the browser and origin; it does not transfer automatically between localhost, the hosted Site, browsers, or devices.
+
+## Develop
 
 ```sh
 flutter pub get
-```
-
-The development baseline is Flutter 3.47.7 and Dart 3.13.5.
-
-## Run in a browser
-
-```sh
-flutter run -d web-server --web-hostname=127.0.0.1 --web-port=8766
-```
-
-Open [Compass at localhost](http://127.0.0.1:8766/). In VS Code, **Compass · Web** launches the same app in Chrome.
-
-## Run on macOS or iOS
-
-With Xcode set up for Flutter development, run the macOS app with:
-
-```sh
-flutter run -d macos
-```
-
-For iOS, start an iPhone simulator or connect a configured device. Run `flutter devices` to find its ID, then run `flutter run -d DEVICE_ID` with that ID. In VS Code, use **Compass · Mac** or select a device and use **Compass · Select device**.
-
-All launch configurations use `lib/main.dart`.
-
-## Checks
-
-```sh
 flutter analyze
 flutter test
+npm --prefix server ci
+npm --prefix server test
 ```
 
-See the [development plan](plan.md) for upcoming iterations.
+For browser development with the calendar gateway:
+
+```sh
+flutter build web --no-web-resources-cdn
+npm --prefix server run dev
+```
+
+The dev server listens on `127.0.0.1:8767`. Its demo identity exemption applies only to localhost development and is absent from production builds. Use the printed preview address in a browser. Inter is bundled under the SIL Open Font License; the design uses Light body text, restrained headings, and a code-native outline compass mark.
+
+## Publish
+
+`.openai/hosting.json` retains the existing Site identity. Run `npm run build` to build Flutter, package separate static assets with the Cloudflare Vite plugin, and emit the Worker at `dist/server/index.js`. Publish through the Sites source/version workflow; keep the Site's current audience. Source changes are maintained on [GitHub](https://github.com/lucaschen-dev/Compass).

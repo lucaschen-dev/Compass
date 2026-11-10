@@ -67,7 +67,7 @@ class ForYouPage extends StatelessWidget {
                         child: Text(
                           'For you',
                           style: theme.textTheme.headlineLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w400,
                           ),
                         ),
                       ),
@@ -377,7 +377,7 @@ class _RecommendationSection extends StatelessWidget {
         child: Text(
           title,
           style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(fontWeight: FontWeight.w600),
+              ?.copyWith(fontWeight: FontWeight.w400),
         ),
       ),
       const SizedBox(height: 10),
@@ -506,3 +506,21 @@ class _ActivityCard extends StatelessWidget {
     );
   }
 }
+
+Future<void> editStudentPreferences(
+  BuildContext context,
+  DemoSchool school,
+  StudentPreferences preferences,
+  Future<void> Function(StudentPreferences) onSave,
+) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  showDragHandle: true,
+  constraints: const BoxConstraints(maxWidth: 640),
+  builder: (_) => _PreferencesEditor(
+    school: school,
+    preferences: preferences,
+    onSave: onSave,
+  ),
+);

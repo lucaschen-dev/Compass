@@ -57,3 +57,9 @@ app.*.map.json
 *.p8
 *.p12
 *.mobileprovision
+
+# Hosted calendar gateway
+/server/node_modules/
+/server/.wrangler/
+/server/.vite/
+/dist/

@@ -47,10 +47,14 @@ class ImportedSchoolCalendar {
   ImportedSchoolCalendar._(
     this.ics,
     this.importedAt,
-    List<SchoolCalendarEvent> events,
-  ) : events = List.unmodifiable(events);
+    List<SchoolCalendarEvent> events, [
+    this.subscriptionUrl,
+  ]) : events = List.unmodifiable(events);
 
   final String ics;
+  final String? subscriptionUrl;
+  ImportedSchoolCalendar withSubscription(String? url) =>
+      ImportedSchoolCalendar._(ics, importedAt, events, url);
   final DateTime importedAt;
   final List<SchoolCalendarEvent> events;
 
@@ -178,6 +182,7 @@ class ImportedSchoolCalendar {
     'version': 1,
     'ics': ics,
     'importedAt': importedAt.toIso8601String(),
+    if (subscriptionUrl != null) 'subscriptionUrl': subscriptionUrl,
   });
 
   static ImportedSchoolCalendar? fromStorage(Object? value) {
@@ -188,7 +193,7 @@ class ImportedSchoolCalendar {
       return ImportedSchoolCalendar.parse(
         data['ics'] as String,
         importedAt: DateTime.tryParse(data['importedAt'] as String? ?? ''),
-      );
+      ).withSubscription(data['subscriptionUrl'] as String?);
     } catch (_) {
       return null;
     }

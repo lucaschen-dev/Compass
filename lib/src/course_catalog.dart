@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'school_demo.dart';
 
 class CourseCatalog extends StatefulWidget {
-  const CourseCatalog({super.key, required this.school});
+  const CourseCatalog({super.key, required this.school, this.showTitle = true});
   final DemoSchool school;
+  final bool showTitle;
 
   @override
   State<CourseCatalog> createState() => _CourseCatalogState();
@@ -41,16 +42,18 @@ class _CourseCatalogState extends State<CourseCatalog> {
       key: const ValueKey('guide-course-catalog'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Semantics(
-          header: true,
-          child: Text(
-            'Course catalog',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
+        if (widget.showTitle) ...[
+          Semantics(
+            header: true,
+            child: Text(
+              'Course catalog',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w400,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
+          const SizedBox(height: 12),
+        ],
         TextField(
           controller: _controller,
           decoration: const InputDecoration(
@@ -74,7 +77,7 @@ class _CourseCatalogState extends State<CourseCatalog> {
                   Text(
                     course.title,
                     style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                   const SizedBox(height: 5),

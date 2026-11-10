@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 
 import 'school_demo.dart';
+import 'app_ui.dart';
 import 'school_calendar_card.dart';
 import 'school_calendar_data.dart';
 
@@ -85,7 +86,7 @@ class DemoHomePage extends StatelessWidget {
                         'Important',
                         style: theme.textTheme.titleSmall?.copyWith(
                           color: colors.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
                     ],
@@ -177,7 +178,7 @@ class _DemoProfilePageState extends State<DemoProfilePage> {
                 child: Text(
                   student.name,
                   style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),
@@ -257,10 +258,16 @@ class DemoAcademicsPage extends StatefulWidget {
     required this.onAdjustCompleted,
     required this.calendar,
     required this.onSaveCalendar,
+    this.promptCalendar = false,
+    this.onCalendarPrompted,
+    this.onUcInterestChanged,
   });
 
   final DemoSchool school;
   final bool ucInterest;
+  final bool promptCalendar;
+  final Future<void> Function()? onCalendarPrompted;
+  final Future<void> Function(bool)? onUcInterestChanged;
   final ImportedSchoolCalendar? calendar;
   final Future<void> Function(ImportedSchoolCalendar?) onSaveCalendar;
   final Map<String, int> completedByRequirement;
@@ -279,39 +286,56 @@ class _DemoAcademicsPageState extends State<DemoAcademicsPage> {
   Widget build(BuildContext context) {
     final school = widget.school;
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
     final requirements = school.requirementsChecklist(
       ucInterest: widget.ucInterest,
     );
-
-    return _SchoolPage(
-      school: school,
-      title: 'Academics',
+    return ContentColumn(
       children: [
-        Text(
-          school.name,
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: colors.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 18),
+        Text('Courses', style: theme.textTheme.headlineLarge),
+        const SizedBox(height: 22),
         SchoolCalendarCard(
           key: ValueKey(school.id),
           schoolId: school.id,
           calendar: widget.calendar,
           onSaveCalendar: widget.onSaveCalendar,
+          promptOnOpen: widget.promptCalendar,
+          onPrompted: widget.onCalendarPrompted,
         ),
-        const SizedBox(height: 24),
-        _RequirementsCard(
-          title: 'Graduation Requirements',
-          subtitle: widget.ucInterest
-              ? '9–12 and UC requirements'
-              : '9–12 requirements',
-          instructions:
-              'Mark what you have completed to see what you still need.',
-          requirements: requirements,
-          completedFor: _completed,
-          onAdjust: widget.onAdjustCompleted,
+        const SizedBox(height: 30),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ExpansionTile(
+            key: PageStorageKey('${school.id}-graduation'),
+            initiallyExpanded: false,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+            shape: const Border(),
+            collapsedShape: const Border(),
+            title: const Text('Graduation Requirements'),
+            children: [
+              if (widget.onUcInterestChanged != null)
+                SwitchListTile(
+                  title: const Text('UC admission requirements'),
+                  value: widget.ucInterest,
+                  onChanged: (value) => appSave(
+                    context,
+                    () => widget.onUcInterestChanged!(value),
+                  ),
+                ),
+              _RequirementsCard(
+                title: '',
+                subtitle: widget.ucInterest
+                    ? '9–12 and UC requirements'
+                    : '9–12 requirements',
+                instructions: '',
+                requirements: requirements,
+                completedFor: _completed,
+                onAdjust: widget.onAdjustCompleted,
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -360,17 +384,20 @@ class _RequirementsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _SectionHeading(title),
-          const SizedBox(height: 6),
+          if (title.isNotEmpty) ...[
+            _SectionHeading(title),
+            const SizedBox(height: 6),
+          ],
           Text(
             subtitle,
             style: theme.textTheme.bodyMedium?.copyWith(color: muted),
           ),
           const SizedBox(height: 6),
-          Text(
-            instructions,
-            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
-          ),
+          if (instructions.isNotEmpty)
+            Text(
+              instructions,
+              style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+            ),
           const SizedBox(height: 10),
           for (final requirement in requirements)
             Padding(
@@ -434,7 +461,7 @@ class _RequirementProgressRow extends StatelessWidget {
                   Text(
                     requirement.subject,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                   if (requirement.detail != null) ...[
@@ -469,7 +496,7 @@ class _RequirementProgressRow extends StatelessWidget {
                     textAlign: TextAlign.end,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: met ? colors.primary : null,
-                      fontWeight: met ? FontWeight.w600 : null,
+                      fontWeight: met ? FontWeight.w400 : null,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -541,7 +568,7 @@ class _CreditRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final style = emphasize
-        ? theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)
+        ? theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w400)
         : theme.textTheme.bodyMedium;
     final unit = unitLabel ?? (credits == 1 ? 'credit' : 'credits');
     return Row(
@@ -591,7 +618,7 @@ class _SchoolPage extends StatelessWidget {
                     child: Text(
                       title,
                       style: theme.textTheme.headlineLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ),
@@ -686,7 +713,7 @@ class _AnnouncementCard extends StatelessWidget {
                 announcement.title,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontSize: 18,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w400,
                   letterSpacing: -0.3,
                 ),
               ),
@@ -754,7 +781,7 @@ class _SectionHeading extends StatelessWidget {
     child: Text(
       label,
       style: Theme.of(context).textTheme.titleMedium
-          ?.copyWith(fontWeight: FontWeight.w600),
+          ?.copyWith(fontWeight: FontWeight.w400),
     ),
   );
 }

@@ -1,220 +1,223 @@
 import 'package:flutter/material.dart';
 
-import 'school_demo.dart';
+import 'app_ui.dart';
 import 'course_catalog.dart';
+import 'school_demo.dart';
 
-class CulturePage extends StatelessWidget {
+class CulturePage extends StatefulWidget {
   const CulturePage({
     super.key,
     required this.school,
     required this.readIds,
     required this.onToggleRead,
   });
-
   final DemoSchool school;
   final Set<String> readIds;
-  final ValueChanged<String> onToggleRead;
+  final Future<void> Function(String) onToggleRead;
+  @override
+  State<CulturePage> createState() => _CulturePageState();
+}
 
+class _CulturePageState extends State<CulturePage> {
+  String _query = '';
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final sections = <String, List<DemoGuideItem>>{};
-    for (final note in school.guide) {
-      sections.putIfAbsent(note.category, () => []).add(note);
-    }
-    final total = school.guide.length;
-    final read = school.guide.where((note) => readIds.contains(note.id)).length;
-    final progress = '$read of $total read';
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 600;
-        return SingleChildScrollView(
-          key: PageStorageKey((school.id, 'culture')),
-          padding: EdgeInsets.fromLTRB(
-            wide ? 40 : 20,
-            wide ? 48 : 28,
-            wide ? 40 : 20,
-            24,
+    final sections = [
+      (label: 'Dress code', icon: Icons.checkroom_outlined),
+      (label: 'Grade', icon: Icons.layers_outlined),
+      (label: 'Faculty & classrooms', icon: Icons.apartment_outlined),
+      (label: 'Campus life', icon: Icons.people_outline),
+      (label: 'Course catalog', icon: Icons.menu_book_outlined),
+    ];
+    return ContentColumn(
+      children: [
+        Text('Guide', style: Theme.of(context).textTheme.headlineLarge),
+        const SizedBox(height: 24),
+        TextField(
+          decoration: const InputDecoration(
+            hintText: 'Search guide',
+            prefixIcon: Icon(Icons.search_rounded),
           ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'FICTIONAL SCHOOL GUIDE',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: colors.primary,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.5,
-                    ),
+          onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+        ),
+        const SizedBox(height: 28),
+        for (final section in sections)
+          if (_query.isEmpty ||
+              section.label.toLowerCase().contains(_query) ||
+              widget.school.guide.any(
+                (g) =>
+                    '${g.title} ${g.description}'.toLowerCase().contains(
+                      _query,
+                    ) &&
+                    ((section.label == 'Dress code' &&
+                            g.category.toLowerCase().contains('dress')) ||
+                        (section.label == 'Campus life' &&
+                            !g.category.toLowerCase().contains('dress'))),
+              )) ...[
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(vertical: 18),
+              leading: Icon(section.icon, size: 27),
+              title: Text(
+                section.label,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded, size: 22),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => _GuideSection(
+                    school: widget.school,
+                    title: section.label,
+                    readIds: widget.readIds,
+                    onToggleRead: widget.onToggleRead,
                   ),
-                  const SizedBox(height: 8),
-                  Semantics(
-                    header: true,
-                    child: Text(
-                      'Campus guide',
-                      style: theme.textTheme.headlineLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Everyday routines and what to wear at '
-                    '${school.name}.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colors.onSurfaceVariant,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: colors.primaryContainer,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          DefaultTextStyle.merge(
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: colors.onPrimaryContainer,
-                            ),
-                            child: Wrap(
-                              alignment: WrapAlignment.spaceBetween,
-                              spacing: 12,
-                              runSpacing: 4,
-                              children: [
-                                const Text('Reading progress'),
-                                Semantics(
-                                  liveRegion: true,
-                                  child: Text(progress),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          // The live count supplies the progress description.
-                          // https://api.flutter.dev/flutter/material/LinearProgressIndicator-class.html
-                          ExcludeSemantics(
-                            child: LinearProgressIndicator(
-                              value: total == 0 ? 0 : read / total,
-                              color: colors.onPrimaryContainer,
-                              backgroundColor: colors.onPrimaryContainer
-                                  .withValues(alpha: .16),
-                              minHeight: 6,
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  for (final section in sections.entries) ...[
-                    const SizedBox(height: 24),
-                    Semantics(
-                      header: true,
-                      child: Text(
-                        section.key,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    for (final note in section.value) ...[
-                      const SizedBox(height: 10),
-                      _NoteCard(
-                        note: note,
-                        isRead: readIds.contains(note.id),
-                        onToggleRead: () => onToggleRead(note.id),
-                      ),
-                    ],
-                  ],
-                  const SizedBox(height: 32),
-                  CourseCatalog(school: school),
-                ],
+                ),
               ),
             ),
-          ),
-        );
-      },
+            const Divider(),
+          ],
+      ],
     );
   }
 }
 
-class _NoteCard extends StatelessWidget {
-  const _NoteCard({
-    required this.note,
-    required this.isRead,
+class _GuideSection extends StatefulWidget {
+  const _GuideSection({
+    required this.school,
+    required this.title,
+    required this.readIds,
     required this.onToggleRead,
   });
+  final DemoSchool school;
+  final String title;
+  final Set<String> readIds;
+  final Future<void> Function(String) onToggleRead;
+  @override
+  State<_GuideSection> createState() => _GuideSectionState();
+}
 
-  final DemoGuideItem note;
-  final bool isRead;
-  final VoidCallback onToggleRead;
-
+class _GuideSectionState extends State<_GuideSection> {
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final action = isRead ? 'unread' : 'read';
-
-    return Card.outlined(
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: colors.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+    final dress = widget.title == 'Dress code';
+    final notes = widget.school.guide.where(
+      (g) => dress
+          ? g.category.toLowerCase().contains('dress')
+          : !g.category.toLowerCase().contains('dress'),
+    );
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.title)),
+      body: ContentColumn(
+        children: [
+          if (widget.title == 'Course catalog')
+            CourseCatalog(school: widget.school, showTitle: false)
+          else if (widget.title == 'Grade')
+            for (final grade in [9, 10, 11, 12])
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: Text('Grade $grade'),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    child: Text(switch (grade) {
+                      9 => 'Meet your adviser, learn your campus routines, and build a balanced course schedule.',
+                      10 => 'Explore electives and clubs. Check your graduation progress with your adviser.',
+                      11 => 'Review your remaining requirements and plan next year’s courses.',
+                      _ => 'Confirm your graduation checklist, final courses, and application deadlines with your adviser.',
+                    }),
+                  ),
+                ],
+              )
+          else if (widget.title == 'Faculty & classrooms') ...[
             Text(
-              note.title,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+              'Faculty directory',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 4),
-            Text(
-              note.description,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colors.onSurfaceVariant,
-                height: 1.5,
+            const SizedBox(height: 20),
+            for (final entry in [
+              (
+                name: 'Morgan Lee',
+                role: 'Student adviser',
+                room: 'Main office',
               ),
-            ),
-            const SizedBox(height: 4),
-            Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 12,
-              children: [
-                Text(
-                  isRead ? 'Read' : 'Unread',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: isRead ? colors.onSurfaceVariant : colors.primary,
-                    fontWeight: FontWeight.w700,
+              (name: 'Sam Rivera', role: 'Science', room: 'Room 204'),
+              (
+                name: 'Taylor Park',
+                role: 'Arts',
+                room: widget.school.id == 'alderline'
+                    ? 'Art studio'
+                    : 'Auditorium',
+              ),
+            ]) ...[
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                leading: StudentAvatar(name: entry.name),
+                title: Text(entry.name),
+                subtitle: Text('${entry.role} · ${entry.room}'),
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: Text(entry.name),
+                    content: Text(
+                      '${entry.role}\n${entry.room}\n${entry.name.toLowerCase().replaceAll(' ', '.')}@${widget.school.id}.example',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Done'),
+                      ),
+                    ],
                   ),
                 ),
-                TextButton(
-                  key: ValueKey('culture-toggle-${note.id}'),
-                  onPressed: onToggleRead,
-                  child: Text(
-                    'Mark as $action',
-                    semanticsLabel: 'Mark ${note.title} as $action',
-                  ),
+              ),
+              const Divider(),
+            ],
+          ] else
+            for (final note in notes) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 22),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      note.title,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      note.description,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                    const SizedBox(height: 14),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () async {
+                          await appSave(
+                            context,
+                            () => widget.onToggleRead(note.id),
+                          );
+                          if (mounted) setState(() {});
+                        },
+                        icon: Icon(
+                          widget.readIds.contains(note.id)
+                              ? Icons.check_circle
+                              : Icons.circle_outlined,
+                          size: 18,
+                        ),
+                        label: Text(
+                          widget.readIds.contains(note.id)
+                              ? 'Read'
+                              : 'Mark as read',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ],
-        ),
+              ),
+              const Divider(),
+            ],
+        ],
       ),
     );
   }

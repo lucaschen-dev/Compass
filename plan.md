@@ -1,23 +1,27 @@
-# Compass development plan
+# Compass plan
 
-Build on the existing Flutter project and review each iteration in the [browser](README.md#run-in-a-browser). The app uses fictional school data and stores demo state locally.
+Continue the existing Flutter app and preserve school-scoped data.
 
-## Current app
+## Current iteration
 
-- Choose Alderline or Cedarbrook through **Find your school** and switch schools from the top bar. Each school has its own announcements, course catalog, graduation requirements, campus guide, sample conversations, and student profile.
-- Search courses by title or subject and view credits and prerequisites. The browser remembers the selected school and saves guide reading progress and added classmates separately for each school.
-- The homepage has a school wordmark, **Important** and **Latest posts**, a floating mobile tab bar, and neutral light and dark modes.
-- **For you** lets students save interests and a preferred meetup time separately for each school. Shared interests recommend sample classmates, clubs, and events; meetup time filters clubs and events. Preferences survive refreshes and can be edited or reset.
-- **Courses** has a school calendar above Graduation Requirements. Read-only ICS imports stay local and separate by school; sample calendars remain available. The searchable course catalog is at the bottom of **Guide**.
+- Minimal outline Compass branding and restrained Inter Light typography. Compass is centered at the top of the welcome; Find Your School is centered on the page. No welcome artwork or promotional small text.
+- Alphabetical searchable school picker for Alderline and Cedarbrook.
+- School-domain-locked local demo login, password/full-name/grade onboarding, persisted sessions, and honest unconfigured setup/recovery email states.
+- Animated Compass/school arrival into the shared header, with reduced-motion support.
+- Four-page navigation; the personal center is upper left, and theme controls are inside its settings.
+- Home includes Latest/For you, six Buckley-inspired post categories, new subtags, topic recommendations, saved/my posts, comments, anonymous posting, targeted questions, priorities, gallery images, and drafts. Existing peer/club/event preference recommendations remain available inside Home.
+- A centered editable profile with Posts/Saved/About sections.
+- Guide is divided into Dress code, Grade, Faculty & classrooms, Campus life, and Course catalog.
+- Local direct/group chat supports replies, editing, unsend, reactions, photos, drafts, search, unread/archive/group filters, pin/mute/archive, copy, delete-for-me, and leave/block actions.
+- Courses has live WebCal connection, local import, Month/Week/Day views, offline snapshots, and collapsed manual Graduation Requirements.
+- Maintain and publish the existing fixed Site, then push the reviewed source changes to GitHub.
 
-## Iterations
+## Verification
 
-1. Add a local academic planner that tracks completed credits against each school's requirements and checks prerequisites for planned courses.
-2. **Completed:** Let students enter preferences and use them to recommend sample peers, clubs, and events. Includes school-scoped local storage, match reasons, editable preferences, and empty states when nothing matches.
-3. Add local community interactions such as creating, replying to, and saving posts and sending demo messages.
+Review entry/login, Home, profile/settings, Guide, Chat, and Courses at phone and desktop widths in light/dark themes. Check school/account isolation, saved state after restart, incorrect passwords/domains, failed writes, calendar retry/cache behavior, and existing requirement totals. Validate the hosted gateway and static assets after publication. Never commit personal calendar links, imports, or credentials.
 
-Review each iteration in both themes at phone and desktop widths. Check that switching schools keeps data separate and refreshing restores saved changes.
+## Later / needs external services
 
-## Later
-
-- Calendar events should eventually update completed courses that fulfill items in `requirementsChecklist`. The current calendar does not change requirement progress automatically.
+- Configure a real identity/email provider before enabling setup/recovery delivery or claiming verified school membership.
+- Shared realtime posts/chats, media storage, moderation/report delivery, notifications, and calls require connected services. The current two-school experience remains a local demo.
+- Calendar events should eventually update completed courses that fulfill `requirementsChecklist`; this iteration does not automate requirement progress.

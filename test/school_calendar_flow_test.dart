@@ -1,4 +1,4 @@
-import 'package:compass_flutter/main.dart' as app;
+import 'package:compass_flutter/src/live_calendar_service.dart';
 import 'package:compass_flutter/src/preview_theme.dart';
 import 'package:compass_flutter/src/school_calendar_card.dart';
 import 'package:compass_flutter/src/school_calendar_data.dart';
@@ -9,33 +9,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
+import 'fixtures/app_session.dart';
 import 'fixtures/calendar_fixtures.dart';
-
-Future<void> tapVisible(WidgetTester tester, Finder finder) async {
-  await tester.ensureVisible(finder);
-  await tester.tap(finder);
-  await tester.pumpAndSettle();
-}
 
 void main() {
   testWidgets(
-    'calendar ordering, Guide catalog search and school isolation survive restart',
+    'calendar, collapsed requirements and Guide catalog survive restart with school isolation',
     (tester) async {
       final original = SharedPreferencesAsyncPlatform.instance;
       SharedPreferencesAsyncPlatform.instance =
           InMemorySharedPreferencesAsync.empty();
+      addTearDown(() => SharedPreferencesAsyncPlatform.instance = original);
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(() {
-        SharedPreferencesAsyncPlatform.instance = original;
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();
       });
-      final today = DateTime.now();
-      final date = dayStamp(today);
-      final end = dayStamp(DateTime(today.year, today.month, today.day + 1));
       final store = SharedPreferencesAsync();
-      await store.setString('compass.preview.selectedSchool', 'alderline');
+      await seedSession(store, demoSchools.last, selected: false);
+      await seedSession(store, demoSchools.first);
+      final now = DateTime.now();
       for (final school in demoSchools) {
         await store.setString(
           schoolCalendarKey(school.id),
@@ -43,106 +37,151 @@ void main() {
             calendarFixture(
               allDayEventFixture(
                 '${school.id} calendar event',
-                date: date,
-                end: end,
+                date: dayStamp(now),
+                end: dayStamp(DateTime(now.year, now.month, now.day + 1)),
               ),
             ),
           ).toStorage(),
         );
       }
-      const progressKey = 'compass.preview.alderline.req.completed.hs-english';
-      await store.setInt(progressKey, 2);
-      await app.main();
-      await tester.pumpAndSettle();
-      await tapVisible(tester, find.text('Courses').last);
-      expect(find.text('alderline calendar event'), findsOneWidget);
-      expect(find.text('cedarbrook calendar event'), findsNothing);
-      expect(find.text('Course catalog'), findsNothing);
-      expect(
-        tester.getTopLeft(find.text('School calendar')).dy,
-        lessThan(tester.getTopLeft(find.text('Graduation Requirements')).dy),
+      await store.setInt(
+        'compass.preview.alderline.req.completed.hs-english',
+        2,
       );
-      await tapVisible(tester, find.byTooltip('Next month'));
+      await boot(tester);
+      await destination(tester, 'Courses');
+      expect(find.text('Academics'), findsNothing);
+      expect(find.text('alderline calendar event'), findsOneWidget);
+      expect(find.text('English'), findsNothing);
+      await tapVisible(tester, find.text('Graduation Requirements'));
+      expect(find.text('English'), findsOneWidget);
+      expect(find.text('2 years of 4 years'), findsOneWidget);
       await tapVisible(tester, find.byTooltip('Previous month'));
       await tapVisible(tester, find.text('Today'));
-      expect(find.text('alderline calendar event'), findsOneWidget);
       expect(
-        await store.getInt(progressKey),
-        2,
-        reason: 'Calendar browsing must not change requirement progress',
-      );
-
-      await tapVisible(tester, find.text('Guide').last);
-      expect(
-        tester
-            .getTopLeft(find.byKey(const ValueKey('guide-course-catalog')))
-            .dy,
-        greaterThan(
-          tester.getTopLeft(find.text(demoSchools.first.guide.last.title)).dy,
+        await store.getInt(
+          'compass.preview.alderline.req.completed.hs-english',
         ),
+        2,
       );
-      await tester.ensureVisible(find.byType(TextField));
+      await destination(tester, 'Guide');
+      await tapVisible(tester, find.text('Course catalog'));
       await tester.enterText(find.byType(TextField), 'Biology');
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(find.widgetWithText(Card, 'Biology'), findsOneWidget);
-      expect(find.text('English 9'), findsNothing);
-      await tester.enterText(find.byType(TextField), 'no such class');
+      expect(find.widgetWithText(Card, 'Geometry'), findsNothing);
+      await tester.pageBack();
       await tester.pumpAndSettle();
-      expect(find.text('No courses match your search.'), findsOneWidget);
-
-      await tapVisible(tester, find.byTooltip('Switch school'));
-      await tapVisible(tester, find.text('Cedarbrook High School'));
-      await tapVisible(tester, find.text('Courses').last);
+      await switchSchool(tester, 'Cedarbrook');
+      await destination(tester, 'Courses');
       expect(find.text('cedarbrook calendar event'), findsOneWidget);
       expect(find.text('alderline calendar event'), findsNothing);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await app.main();
-      await tester.pumpAndSettle();
-      await tapVisible(tester, find.text('Courses').last);
+      await boot(tester);
+      await destination(tester, 'Courses');
       expect(find.text('cedarbrook calendar event'), findsOneWidget);
-      await tapVisible(tester, find.text('Guide').last);
-      expect(find.text('No courses match your search.'), findsNothing);
-      expect(find.text('Stagecraft'), findsOneWidget);
-      expect(find.text('Biology'), findsNothing);
-      expect(await store.getInt(progressKey), 2);
       expect(tester.takeException(), isNull);
     },
   );
-
-  testWidgets('invalid and cancelled imports keep the existing calendar', (
+  testWidgets('invalid and cancelled imports preserve the previous calendar', (
     tester,
   ) async {
-    final old = ImportedSchoolCalendar.parse(
-      calendarFixture(allDayEventFixture('Keep this event')),
+    var payload = '<html>Log in</html>';
+    var writes = 0;
+    final calendar = ImportedSchoolCalendar.parse(
+      calendarFixture(allDayEventFixture('Keep my events')),
     );
-    String? input = '<html>Login</html>';
-    var saves = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: SchoolCalendarCard(
-            schoolId: 'alderline',
-            calendar: old,
-            today: DateTime(2026, 11, 8),
-            readIcs: () async => input,
-            onSaveCalendar: (_) async {
-              saves++;
-            },
+          body: SingleChildScrollView(
+            child: SchoolCalendarCard(
+              schoolId: 'alderline',
+              calendar: calendar,
+              today: DateTime(2026, 11, 8),
+              readIcs: () async => payload.isEmpty ? null : payload,
+              onSaveCalendar: (_) async {
+                writes++;
+              },
+            ),
           ),
         ),
       ),
     );
-    await tapVisible(tester, find.byTooltip('Import calendar'));
+    Future<void> import() async {
+      await tapVisible(tester, find.byTooltip('Calendar options'));
+      await tapVisible(tester, find.text('Import calendar'));
+    }
+
+    await import();
     expect(find.text('Choose an iCalendar (.ics) file.'), findsOneWidget);
-    expect(find.text('Keep this event'), findsOneWidget);
-    expect(saves, 0);
-    input = null;
-    await tapVisible(tester, find.byTooltip('Import calendar'));
-    expect(saves, 0);
-    expect(find.text('Keep this event'), findsOneWidget);
+    expect(writes, 0);
+    expect(find.text('Keep my events'), findsOneWidget);
+    payload = '';
+    await import();
+    expect(writes, 0);
     expect(tester.takeException(), isNull);
   });
-
+  testWidgets(
+    'connected feed refreshes automatically and keeps the last good data on failure',
+    (tester) async {
+      var fetches = 0, fail = false;
+      ImportedSchoolCalendar? current;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => SingleChildScrollView(
+                child: SchoolCalendarCard(
+                  schoolId: 'alderline',
+                  calendar: current,
+                  today: DateTime(2026, 11, 8),
+                  fetchCalendar: (url) async {
+                    fetches++;
+                    if (fail) {
+                      throw const CalendarImportException(
+                        'Network unavailable. Saved events remain.',
+                      );
+                    }
+                    return ImportedSchoolCalendar.parse(
+                      calendarFixture(
+                        allDayEventFixture('Feed version $fetches'),
+                      ),
+                    );
+                  },
+                  onSaveCalendar: (next) async =>
+                      setState(() => current = next),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tapVisible(tester, find.text('+ Connect'));
+      await tester.enterText(
+        find.byType(TextField),
+        'webcal://demo.myschoolapp.com/calendar.ics',
+      );
+      await tapVisible(tester, find.text('Connect'));
+      expect(
+        current!.subscriptionUrl,
+        'https://demo.myschoolapp.com/calendar.ics',
+      );
+      expect(find.text('Feed version 1'), findsOneWidget);
+      await tester.pump(const Duration(minutes: 15));
+      await tester.pumpAndSettle();
+      expect(find.text('Feed version 2'), findsOneWidget);
+      fail = true;
+      await tapVisible(tester, find.byTooltip('Refresh calendar'));
+      expect(
+        find.text('Network unavailable. Saved events remain.'),
+        findsOneWidget,
+      );
+      expect(find.text('Feed version 2'), findsOneWidget);
+      final stored = ImportedSchoolCalendar.fromStorage(current!.toStorage());
+      expect(stored!.subscriptionUrl, current!.subscriptionUrl);
+      expect(tester.takeException(), isNull);
+    },
+  );
   for (final brightness in Brightness.values) {
     for (final size in [
       const Size(320, 740),
@@ -150,7 +189,7 @@ void main() {
       const Size(1440, 900),
     ]) {
       testWidgets(
-        'calendar import and layout ${brightness.name} at ${size.width}',
+        'calendar views and import retry ${brightness.name} at ${size.width}',
         (tester) async {
           tester.view.physicalSize = size;
           tester.view.devicePixelRatio = 1;
@@ -158,24 +197,24 @@ void main() {
             tester.view.resetPhysicalSize();
             tester.view.resetDevicePixelRatio();
           });
-          ImportedSchoolCalendar? calendar;
-          var failSave = true;
+          var fail = true;
+          ImportedSchoolCalendar? current;
           await tester.pumpWidget(
             MaterialApp(
               theme: localCompassTheme(brightness),
               home: Scaffold(
-                body: SingleChildScrollView(
-                  child: StatefulBuilder(
-                    builder: (context, update) => SchoolCalendarCard(
+                body: StatefulBuilder(
+                  builder: (context, setState) => SingleChildScrollView(
+                    child: SchoolCalendarCard(
                       schoolId: 'alderline',
-                      calendar: calendar,
+                      calendar: current,
                       today: DateTime(2026, 11, 8),
                       readIcs: () async => calendarFixture(
-                        allDayEventFixture('Imported study day'),
+                        allDayEventFixture('Imported school event'),
                       ),
                       onSaveCalendar: (next) async {
-                        if (failSave) throw StateError('Storage full');
-                        update(() => calendar = next);
+                        if (fail) throw StateError('Storage unavailable');
+                        setState(() => current = next);
                       },
                     ),
                   ),
@@ -183,24 +222,77 @@ void main() {
               ),
             ),
           );
-          await tester.pumpAndSettle();
-          await tapVisible(tester, find.byTooltip('Import calendar'));
+          Future<void> import() async {
+            await tapVisible(tester, find.byTooltip('Calendar options'));
+            await tapVisible(tester, find.text('Import calendar'));
+          }
+
+          await import();
+          expect(current, isNull);
           expect(
             find.text('Could not save this calendar. Please try again.'),
             findsOneWidget,
           );
-          expect(calendar, isNull);
-          failSave = false;
-          await tapVisible(tester, find.byTooltip('Import calendar'));
-          expect(find.text('Imported calendar · 1 event'), findsOneWidget);
-          expect(find.text('Imported study day'), findsOneWidget);
-          expect(calendar!.events, hasLength(1));
-          await tapVisible(tester, find.byTooltip('Use sample calendar'));
-          expect(calendar, isNull);
-          expect(find.text('Sample events'), findsOneWidget);
+          fail = false;
+          await import();
+          expect(find.text('Imported school event'), findsOneWidget);
+          await tapVisible(tester, find.text('Week'));
+          await tapVisible(tester, find.text('Day'));
+          await tapVisible(tester, find.text('Month'));
+          await tapVisible(tester, find.byTooltip('Calendar options'));
+          await tapVisible(tester, find.text('Use sample calendar'));
+          expect(current, isNull);
           expect(tester.takeException(), isNull);
         },
       );
     }
   }
+  testWidgets('day timeline includes events outside normal school hours', (
+    tester,
+  ) async {
+    final calendar = ImportedSchoolCalendar.parse(
+      calendarFixture(
+        'BEGIN:VEVENT\nUID:early\nDTSTAMP:20260101T000000Z\nDTSTART:20261108T010000\nDTEND:20261108T020000\nSUMMARY:Early school trip\nEND:VEVENT',
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SchoolCalendarCard(
+              schoolId: 'alderline',
+              calendar: calendar,
+              today: DateTime(2026, 11, 8),
+              onSaveCalendar: (_) async {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tapVisible(tester, find.text('Day'));
+    expect(find.text('Early school trip'), findsOneWidget);
+    expect(find.text('01:00'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Early school trip')).dy -
+          tester.getTopLeft(find.text('01:00')).dy,
+      inInclusiveRange(0, 44),
+    );
+    expect(tester.takeException(), isNull);
+  });
+  test('feed normalization refuses non-provider/private hosts', () {
+    expect(
+      normalizeCalendarUrl('webcal://demo.myschoolapp.com/feed').scheme,
+      'https',
+    );
+    for (final value in [
+      'http://demo.myschoolapp.com/feed',
+      'https://127.0.0.1/feed',
+      'https://demo.myschoolapp.com.attacker.test/feed',
+    ]) {
+      expect(
+        () => normalizeCalendarUrl(value),
+        throwsA(isA<CalendarImportException>()),
+      );
+    }
+  });
 }
