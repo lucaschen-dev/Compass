@@ -100,42 +100,6 @@ class SchoolMark extends StatelessWidget {
   );
 }
 
-class SchoolBrand extends StatelessWidget {
-  const SchoolBrand({super.key, required this.school, this.fontSize = 17});
-  final DemoSchool school;
-  final double fontSize;
-  @override
-  Widget build(BuildContext context) => FittedBox(
-    fit: BoxFit.scaleDown,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        CompassWordmark(size: fontSize),
-        const SizedBox(width: 8),
-        Text(
-          '×',
-          style: TextStyle(
-            fontSize: fontSize,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(width: 8),
-        SchoolMark(school: school, size: fontSize * 1.4),
-        const SizedBox(width: 6),
-        Text(
-          shortSchoolName(school),
-          style: TextStyle(
-            fontSize: fontSize,
-            fontWeight: FontWeight.w400,
-            fontVariations: const [FontVariation('wght', 350)],
-            letterSpacing: -.6,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 class StudentAvatar extends StatelessWidget {
   const StudentAvatar({
     super.key,

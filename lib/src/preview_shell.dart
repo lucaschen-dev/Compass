@@ -1,5 +1,3 @@
-import 'dart:ui' show lerpDouble;
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +12,7 @@ import 'live_calendar_service.dart';
 import 'recommendations.dart';
 import 'school_calendar_data.dart';
 import 'school_demo.dart';
+import 'school_arrival_brand.dart';
 import 'school_pages.dart';
 
 enum _Destination {
@@ -179,11 +178,6 @@ class _PreviewShellState extends State<PreviewShell>
                   radius: 18,
                 ),
               ),
-              centerTitle: true,
-              title: SizedBox(
-                width: wide ? 320 : 270,
-                child: SchoolBrand(school: widget.school, fontSize: 15),
-              ),
               bottom: PreferredSize(
                 preferredSize: const Size.fromHeight(1),
                 child: Divider(color: colors.outlineVariant),
@@ -194,22 +188,11 @@ class _PreviewShellState extends State<PreviewShell>
               child: wide
                   ? Row(
                       children: [
-                        NavigationRail(
-                          backgroundColor: colors.surface,
-                          minWidth: 96,
-                          minExtendedWidth: 160,
-                          extended: size.maxWidth >= 1200,
-                          selectedIndex: _selected.index,
-                          onDestinationSelected: (i) => setState(
-                            () => _selected = _Destination.values[i],
-                          ),
-                          destinations: [
-                            for (final d in _Destination.values)
-                              NavigationRailDestination(
-                                icon: Icon(d.icon, size: 22),
-                                label: Text(d.label),
-                              ),
-                          ],
+                        _DesktopNavigation(
+                          selected: _selected,
+                          width: size.maxWidth >= 1200 ? 176 : 160,
+                          onSelected: (destination) =>
+                              setState(() => _selected = destination),
                         ),
                         VerticalDivider(width: 1, color: colors.outlineVariant),
                         Expanded(child: page),
@@ -255,73 +238,40 @@ class _PreviewShellState extends State<PreviewShell>
             animation: _arrival,
             child: scaffold,
             builder: (context, child) {
-              final phase = _arrival.value;
-              if (phase >= 1) return child!;
-              final move = Curves.easeInOutCubic.transform(
-                ((phase - .40) / .53).clamp(0.0, 1.0),
+              final phase = MediaQuery.disableAnimationsOf(context)
+                  ? 1.0
+                  : _arrival.value;
+              final contentOpacity = Curves.easeOutCubic.transform(
+                ((phase - .70) / .26).clamp(0.0, 1.0),
               );
-              final fade = Curves.easeOut.transform(
-                ((phase - .77) / .23).clamp(0.0, 1.0),
-              );
-              final compassOpacity = (phase / .24).clamp(0.0, 1.0);
-              final schoolOpacity = ((phase - .20) / .24).clamp(0.0, 1.0);
+              // Keep the same brand elements mounted through the last frame.
+              // Only the page behind them fades in; no header replacement.
               return Stack(
                 children: [
-                  child!,
+                  IgnorePointer(
+                    ignoring: phase < 1,
+                    child: ExcludeSemantics(
+                      excluding: phase < 1,
+                      child: child!,
+                    ),
+                  ),
                   Positioned.fill(
-                    child: AbsorbPointer(
+                    child: IgnorePointer(
                       child: ColoredBox(
-                        color: colors.surface.withValues(alpha: 1 - fade),
-                        child: Stack(
-                          children: [
-                            Positioned(
-                              left: lerpDouble(
-                                size.maxWidth / 2 - 78,
-                                size.maxWidth / 2 - 125,
-                                move,
-                              ),
-                              top: lerpDouble(size.maxHeight * .37, 16, move),
-                              child: Opacity(
-                                opacity: compassOpacity * (1 - fade),
-                                child: CompassWordmark(
-                                  size: lerpDouble(26, 15, move)!,
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              left: lerpDouble(
-                                size.maxWidth / 2 - 64,
-                                size.maxWidth / 2 + 4,
-                                move,
-                              ),
-                              top: lerpDouble(
-                                size.maxHeight * .37 + 72,
-                                18,
-                                move,
-                              ),
-                              child: Opacity(
-                                opacity: schoolOpacity * (1 - fade),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    SchoolMark(
-                                      school: widget.school,
-                                      size: lerpDouble(38, 21, move)!,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      shortSchoolName(widget.school),
-                                      style: TextStyle(
-                                        fontSize: lerpDouble(20, 15, move),
-                                        fontWeight: FontWeight.w300,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
+                        color: colors.surface.withValues(
+                          alpha: 1 - contentOpacity,
                         ),
+                      ),
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: SchoolArrivalBrand(
+                        school: widget.school,
+                        phase: phase,
+                        toolbarCenterY:
+                            MediaQuery.paddingOf(context).top +
+                            kToolbarHeight / 2,
                       ),
                     ),
                   ),
@@ -333,4 +283,79 @@ class _PreviewShellState extends State<PreviewShell>
       );
     },
   );
+}
+
+class _DesktopNavigation extends StatelessWidget {
+  const _DesktopNavigation({
+    required this.selected,
+    required this.width,
+    required this.onSelected,
+  });
+  final _Destination selected;
+  final double width;
+  final ValueChanged<_Destination> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      key: const ValueKey('desktop-navigation'),
+      width: width,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+        child: Column(
+          children: [
+            for (final destination in _Destination.values)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Semantics(
+                  selected: destination == selected,
+                  child: Material(
+                    color: destination == selected
+                        ? colors.primaryContainer
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () => onSelected(destination),
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        height: 52,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Icon(
+                                destination.icon,
+                                size: 22,
+                                color: destination == selected
+                                    ? colors.primary
+                                    : colors.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  destination.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodyMedium!
+                                      .copyWith(
+                                        color: destination == selected
+                                            ? colors.primary
+                                            : colors.onSurfaceVariant,
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }

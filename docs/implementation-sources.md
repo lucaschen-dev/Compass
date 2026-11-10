@@ -2,6 +2,8 @@
 
 - Flutter custom font assets: https://docs.flutter.dev/cookbook/design/fonts
 - Variable font weight axes: https://api.flutter.dev/flutter/painting/TextStyle/fontVariations.html
+- Measured multi-child layout: https://api.flutter.dev/flutter/widgets/CustomMultiChildLayout-class.html
+- Stable inherited typography: https://api.flutter.dev/flutter/widgets/DefaultTextStyle-class.html
 - Reduced-motion-aware animation components: https://api.flutter.dev/flutter/widgets/AnimatedAlign-class.html
 - Collapsed requirement sections: https://api.flutter.dev/flutter/material/ExpansionTile-class.html
 - Local file selection: https://pub.dev/packages/file_selector

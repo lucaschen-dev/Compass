@@ -4,7 +4,6 @@ import 'package:compass_flutter/main.dart' as app;
 import 'package:compass_flutter/src/local_accounts.dart';
 import 'package:compass_flutter/src/live_calendar_service.dart';
 import 'package:compass_flutter/src/school_demo.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -55,7 +54,7 @@ Future<void> switchSchool(WidgetTester tester, String name) async {
 Future<void> destination(WidgetTester tester, String label) async {
   final nav = find.byType(CupertinoTabBar).evaluate().isNotEmpty
       ? find.byType(CupertinoTabBar)
-      : find.byType(NavigationRail);
+      : find.byKey(const ValueKey('desktop-navigation'));
   await tapVisible(
     tester,
     find.descendant(of: nav, matching: find.text(label)),

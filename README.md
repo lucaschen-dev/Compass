@@ -6,8 +6,8 @@ Compass is a Flutter school community demo for Alderline and Cedarbrook. The hos
 
 - A minimal Compass welcome screen, a centered **Find Your School** button, and a searchable alphabetical school list.
 - School-specific demo login with a fixed email suffix. **First login** offers local demo account creation, password setup, and full-name/grade onboarding. Passwords are stored as salted PBKDF2-SHA256 hashes, never plaintext. Sessions survive refresh.
-- A school arrival animation fades in Compass and the school mark, then moves both into the Home header. Reduced-motion preferences are respected.
-- Four destinations: **Home**, **Guide**, **Chat**, and **Courses**. The personal center is at the upper left. Appearance settings live inside the personal center.
+- A school arrival animation fades in Compass and the school mark, then moves both into the Home header. The same brand elements remain mounted in the header, with stable type and color throughout the movement. Reduced-motion preferences are respected.
+- Four destinations: **Home**, **Guide**, **Chat**, and **Courses**. Desktop navigation highlights the entire icon-and-label row. The personal center is at the upper left. Appearance settings live inside the personal center.
 - Home carries Latest and For you feeds, six post categories, category/subtag filters, keyword search, topic recommendations, comments, likes, saved posts, anonymous posts, targeted questions, priorities, gallery posts, and composer drafts. For example, follow **Clubs → Badminton** to recommend badminton posts. Existing interest/time preferences still recommend sample peers, clubs, and events.
 - A centered editable profile photo, full name, grade, bio, Posts/Saved/About sections, and settings.
 - Guide separates **Dress code**, **Grade**, **Faculty & classrooms**, **Campus life**, and **Course catalog**. Guide reading progress and course search remain available.
