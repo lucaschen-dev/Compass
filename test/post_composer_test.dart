@@ -3,7 +3,7 @@ import 'package:compass_flutter/src/community_models.dart';
 import 'package:compass_flutter/src/local_accounts.dart';
 import 'package:compass_flutter/src/preview_theme.dart';
 import 'package:compass_flutter/src/school_demo.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fixtures/app_session.dart';

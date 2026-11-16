@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function belongsToSchool(schoolId) {
+      return signedIn() && userData().schoolId == schoolId;
+    }
+
+    function noSecrets(data) {
+      return !data.keys().hasAny([
+        'password',
+        'passwordHash',
+        'salt',
+        'calendar',
+        'calendarUrl',
+        'calendarImport',
+        'webcal',
+        'icsUrl'
+      ]);
+    }
+
+    function profileOk() {
+      return noSecrets(request.resource.data)
+        && request.resource.data.keys().hasOnly([
+          'email',
+          'name',
+          'grade',
+          'schoolId',
+          'updatedAt'
+        ])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.schoolId in ['alderline', 'cedarbrook']
+        && (request.auth.token.firebase.sign_in_provider == 'google.com'
+          || request.resource.data.email.matches(
+            '^[^@]+@' + request.resource.data.schoolId + '\\.example$'
+          ))
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 60
+        && request.resource.data.grade is int
+        && request.resource.data.grade >= 9
+        && request.resource.data.grade <= 12;
+    }
+
+    match /schools/{schoolId} {
+      allow read: if signedIn();
+      allow create, update, delete: if false;
+
+      match /posts/{postId} {
+        allow read: if belongsToSchool(schoolId);
+        allow create: if belongsToSchool(schoolId)
+          && request.resource.data.authorId == request.auth.uid
+          && noSecrets(request.resource.data);
+        allow update: if belongsToSchool(schoolId)
+          && request.resource.data.authorId == resource.data.authorId
+          && noSecrets(request.resource.data);
+        allow delete: if belongsToSchool(schoolId)
+          && resource.data.authorId == request.auth.uid;
+
+        match /replies/{replyId} {
+          allow read: if belongsToSchool(schoolId);
+          allow create: if belongsToSchool(schoolId)
+            && request.resource.data.authorId == request.auth.uid
+            && noSecrets(request.resource.data);
+          allow update: if belongsToSchool(schoolId)
+            && resource.data.authorId == request.auth.uid
+            && request.resource.data.authorId == request.auth.uid
+            && noSecrets(request.resource.data);
+          allow delete: if belongsToSchool(schoolId)
+            && resource.data.authorId == request.auth.uid;
+        }
+      }
+
+      match /threads/{threadId} {
+        allow read: if belongsToSchool(schoolId);
+        allow create, update: if belongsToSchool(schoolId)
+          && noSecrets(request.resource.data);
+        allow delete: if false;
+
+        match /messages/{messageId} {
+          allow read: if belongsToSchool(schoolId);
+          allow create: if belongsToSchool(schoolId)
+            && request.resource.data.senderId == request.auth.uid
+            && noSecrets(request.resource.data);
+          allow update: if belongsToSchool(schoolId)
+            && resource.data.senderId == request.auth.uid
+            && request.resource.data.senderId == request.auth.uid
+            && noSecrets(request.resource.data);
+          allow delete: if belongsToSchool(schoolId)
+            && resource.data.senderId == request.auth.uid;
+        }
+      }
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && profileOk();
+      allow delete: if false;
+
+      match /schools/{schoolId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && noSecrets(request.resource.data);
+        allow delete: if false;
+      }
+    }
+  }
+}

@@ -16,6 +16,8 @@ class DemoActivity {
     required this.meetupTime,
     required this.when,
     required this.location,
+    this.leaderIds = const [],
+    this.memberIds = const [],
   });
 
   final String id;
@@ -25,6 +27,35 @@ class DemoActivity {
   final MeetupTime meetupTime;
   final String when;
   final String location;
+  final List<String> leaderIds;
+  final List<String> memberIds;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'title': title,
+    'description': description,
+    'interests': interests,
+    'meetupTime': meetupTime.name,
+    'when': when,
+    'location': location,
+    'leaderIds': leaderIds,
+    'memberIds': memberIds,
+  };
+
+  factory DemoActivity.fromJson(Map<String, dynamic> json) => DemoActivity(
+    id: json['id'] as String,
+    title: json['title'] as String,
+    description: json['description'] as String,
+    interests: (json['interests'] as List? ?? const []).cast<String>(),
+    meetupTime: MeetupTime.values.firstWhere(
+      (time) => time.name == json['meetupTime'],
+      orElse: () => MeetupTime.any,
+    ),
+    when: json['when'] as String? ?? '',
+    location: json['location'] as String? ?? '',
+    leaderIds: (json['leaderIds'] as List? ?? const []).cast<String>(),
+    memberIds: (json['memberIds'] as List? ?? const []).cast<String>(),
+  );
 }
 
 // Fictional opportunities belonging only to their respective demo school.
@@ -37,6 +68,8 @@ const alderlineClubs = [
     meetupTime: MeetupTime.afterSchool,
     when: 'Wednesdays · 3:30 PM',
     location: 'Makerspace',
+    leaderIds: ['jordan-ellis'],
+    memberIds: ['jordan-ellis', 'leo-park', 'maya-chen'],
   ),
   DemoActivity(
     id: 'sketchbook-circle',
@@ -46,6 +79,8 @@ const alderlineClubs = [
     meetupTime: MeetupTime.lunch,
     when: 'Tuesdays · Lunch',
     location: 'Art studio',
+    leaderIds: ['amara-brooks'],
+    memberIds: ['amara-brooks', 'maya-chen'],
   ),
   DemoActivity(
     id: 'library-lounge',
@@ -55,6 +90,8 @@ const alderlineClubs = [
     meetupTime: MeetupTime.lunch,
     when: 'Wednesdays · Lunch',
     location: 'Library commons',
+    leaderIds: ['amara-brooks'],
+    memberIds: ['amara-brooks', 'leo-park'],
   ),
   DemoActivity(
     id: 'badminton-club',
@@ -64,6 +101,8 @@ const alderlineClubs = [
     meetupTime: MeetupTime.afterSchool,
     when: 'Tuesdays · 3:30 PM',
     location: 'Gym',
+    leaderIds: ['leo-park'],
+    memberIds: ['leo-park', 'jordan-ellis'],
   ),
   DemoActivity(
     id: 'campus-lens',
@@ -73,6 +112,8 @@ const alderlineClubs = [
     meetupTime: MeetupTime.lunch,
     when: 'Mondays · Lunch',
     location: 'Student Commons',
+    leaderIds: ['maya-chen'],
+    memberIds: ['maya-chen', 'amara-brooks'],
   ),
 ];
 
@@ -135,6 +176,8 @@ const cedarbrookClubs = [
     meetupTime: MeetupTime.afterSchool,
     when: 'Wednesdays · 3:30 PM',
     location: 'Auditorium',
+    leaderIds: ['noah-bennett'],
+    memberIds: ['noah-bennett', 'eli-torres'],
   ),
   DemoActivity(
     id: 'yearbook-lab',
@@ -144,6 +187,8 @@ const cedarbrookClubs = [
     meetupTime: MeetupTime.afterSchool,
     when: 'Thursdays · 3:30 PM',
     location: 'Media studio',
+    leaderIds: ['eli-torres'],
+    memberIds: ['eli-torres', 'tessa-wu'],
   ),
   DemoActivity(
     id: 'garden-club',
@@ -153,6 +198,8 @@ const cedarbrookClubs = [
     meetupTime: MeetupTime.afterSchool,
     when: 'Fridays · 3:30 PM',
     location: 'Greenhouse',
+    leaderIds: ['eli-torres'],
+    memberIds: ['eli-torres', 'tessa-wu', 'noah-bennett'],
   ),
   DemoActivity(
     id: 'walking-club',
@@ -162,6 +209,8 @@ const cedarbrookClubs = [
     meetupTime: MeetupTime.lunch,
     when: 'Thursdays · Lunch',
     location: 'Courtyard',
+    leaderIds: ['tessa-wu'],
+    memberIds: ['tessa-wu', 'eli-torres'],
   ),
   DemoActivity(
     id: 'reading-circle',
@@ -171,6 +220,8 @@ const cedarbrookClubs = [
     meetupTime: MeetupTime.lunch,
     when: 'Tuesdays · Lunch',
     location: 'Study commons',
+    leaderIds: ['tessa-wu'],
+    memberIds: ['tessa-wu', 'noah-bennett'],
   ),
 ];
 

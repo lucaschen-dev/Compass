@@ -1,5 +1,7 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_ui.dart';
@@ -14,6 +16,8 @@ import 'school_calendar_data.dart';
 import 'school_demo.dart';
 import 'school_arrival_brand.dart';
 import 'school_pages.dart';
+import 'firebase/compass_remote.dart';
+import 'firebase/compass_scope.dart';
 
 enum _Destination {
   home('Home', CupertinoIcons.house),
@@ -92,13 +96,39 @@ class _PreviewShellState extends State<PreviewShell>
       } else {
         _arrival.forward();
       }
+      _remote = CompassScope.maybeOf(context);
+      _remote?.notice.addListener(_onSyncNotice);
+      _refreshSection(_selected);
     });
   }
 
   @override
   void dispose() {
+    _remote?.notice.removeListener(_onSyncNotice);
     _arrival.dispose();
     super.dispose();
+  }
+
+  CompassRemote? _remote;
+
+  void _onSyncNotice() {
+    final message = _remote?.notice.value;
+    if (message == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _select(_Destination destination) {
+    setState(() => _selected = destination);
+    _refreshSection(destination);
+  }
+
+  void _refreshSection(_Destination destination) {
+    final remote = _remote ?? CompassScope.maybeOf(context);
+    if (destination == _Destination.home) {
+      unawaited(remote?.refreshPosts());
+    } else if (destination == _Destination.chat) {
+      unawaited(remote?.refreshThreads());
+    }
   }
 
   void _profile() => Navigator.push(
@@ -124,6 +154,8 @@ class _PreviewShellState extends State<PreviewShell>
           community: widget.community,
           preferences: widget.preferences,
           onSavePreferences: widget.onSavePreferences,
+          friendIds: widget.friendIds,
+          onAddFriend: widget.onAddFriend,
         ),
         _Destination.guide => CulturePage(
           school: widget.school,
@@ -191,8 +223,7 @@ class _PreviewShellState extends State<PreviewShell>
                         _DesktopNavigation(
                           selected: _selected,
                           width: size.maxWidth >= 1200 ? 176 : 160,
-                          onSelected: (destination) =>
-                              setState(() => _selected = destination),
+                          onSelected: _select,
                         ),
                         VerticalDivider(width: 1, color: colors.outlineVariant),
                         Expanded(child: page),
@@ -215,8 +246,7 @@ class _PreviewShellState extends State<PreviewShell>
                     ),
                     child: CupertinoTabBar(
                       currentIndex: _selected.index,
-                      onTap: (i) =>
-                          setState(() => _selected = _Destination.values[i]),
+                      onTap: (i) => _select(_Destination.values[i]),
                       activeColor: colors.primary,
                       inactiveColor: colors.onSurfaceVariant,
                       backgroundColor: colors.surface,

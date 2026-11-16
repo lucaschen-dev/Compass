@@ -4,7 +4,7 @@ import 'package:compass_flutter/main.dart' as app;
 import 'package:compass_flutter/src/local_accounts.dart';
 import 'package:compass_flutter/src/live_calendar_service.dart';
 import 'package:compass_flutter/src/school_demo.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

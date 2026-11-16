@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'app_ui.dart';
 import 'local_accounts.dart';
@@ -13,7 +13,7 @@ class SchoolAuthPage extends StatefulWidget {
     required this.accounts,
   });
   final DemoSchool school;
-  final LocalAccounts accounts;
+  final SchoolAccounts accounts;
   @override
   State<SchoolAuthPage> createState() => _SchoolAuthPageState();
 }
@@ -27,7 +27,7 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
   final _nameFocus = FocusNode();
   _AuthStep _step = _AuthStep.login;
   int _grade = 11;
-  bool _busy = false, _hidden = true;
+  bool _busy = false, _hidden = true, _googlePending = false;
   String? _error;
   @override
   void dispose() {
@@ -78,6 +78,60 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
       final account = await widget.accounts.create(
         username: _email.text,
         password: _password.text,
+        name: _name.text,
+        grade: _grade,
+      );
+      if (mounted) Navigator.pop(context, account);
+    } on AccountException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = 'Could not save your account. Please try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _google() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final account = await widget.accounts.signInWithGoogle();
+      if (!mounted) return;
+      if (account != null) {
+        Navigator.pop(context, account);
+        return;
+      }
+      _name.text = widget.accounts.googleDisplayName?.trim() ?? '';
+      setState(() {
+        _googlePending = true;
+        _step = _AuthStep.name;
+      });
+    } on AccountException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Could not log in. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _finishGoogle() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final account = await widget.accounts.finishGoogleProfile(
         name: _name.text,
         grade: _grade,
       );
@@ -182,11 +236,15 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(
-          onPressed: () {
+          onPressed: () async {
             if (_step == _AuthStep.login) {
               Navigator.pop(context);
             } else {
-              _go(_AuthStep.login);
+              if (_googlePending) {
+                _googlePending = false;
+                await widget.accounts.cancelGoogle();
+              }
+              if (mounted) _go(_AuthStep.login);
             }
           },
         ),
@@ -343,9 +401,11 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                                         );
                                         return;
                                       }
+                                      _googlePending = false;
                                       _go(_AuthStep.name);
                                     },
-                                    _AuthStep.name => _create,
+                                    _AuthStep.name =>
+                                      _googlePending ? _finishGoogle : _create,
                                   },
                             child: _busy
                                 ? const SizedBox.square(
@@ -359,9 +419,20 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                                     _AuthStep.first => 'Send setup email',
                                     _AuthStep.forgot => 'Send reset email',
                                     _AuthStep.password => 'Continue',
-                                    _AuthStep.name => 'Create demo account',
+                                    _AuthStep.name =>
+                                      _googlePending
+                                          ? 'Continue'
+                                          : 'Create demo account',
                                   }),
                           ),
+                          if (_step == _AuthStep.login &&
+                              widget.accounts.supportsGoogle) ...[
+                            const SizedBox(height: 16),
+                            OutlinedButton(
+                              onPressed: _busy ? null : _google,
+                              child: const Text('Continue with Google'),
+                            ),
+                          ],
                           if (_step == _AuthStep.first) ...[
                             const SizedBox(height: 14),
                             OutlinedButton(

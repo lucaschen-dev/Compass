@@ -16,6 +16,22 @@ class DemoPerson {
   final List<String> interests;
 
   String get initials => name.split(' ').map((part) => part[0]).join();
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'grade': grade,
+    'bio': bio,
+    'interests': interests,
+  };
+
+  factory DemoPerson.fromJson(Map<String, dynamic> json) => DemoPerson(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    grade: json['grade'] as int,
+    bio: json['bio'] as String? ?? '',
+    interests: (json['interests'] as List? ?? const []).cast<String>(),
+  );
 }
 
 class DemoAnnouncement {
@@ -98,6 +114,15 @@ class DemoSchool {
           requirement,
     ];
   }
+
+  /// School catalog fields safe to publish under `schools/{schoolId}`.
+  Map<String, Object?> toCatalogJson({required String emailDomain}) => {
+    'id': id,
+    'name': name,
+    'location': location,
+    'initials': initials,
+    'emailDomain': emailDomain,
+  };
 }
 
 class DemoGuideItem {
@@ -107,6 +132,20 @@ class DemoGuideItem {
   final String category;
   final String title;
   final String description;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'category': category,
+    'title': title,
+    'description': description,
+  };
+
+  factory DemoGuideItem.fromJson(Map<String, dynamic> json) => DemoGuideItem(
+    json['id'] as String,
+    json['category'] as String,
+    json['title'] as String,
+    json['description'] as String,
+  );
 }
 
 class DemoCourse {
@@ -125,6 +164,24 @@ class DemoCourse {
   final int credits;
   final String description;
   final List<String> prerequisites;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'title': title,
+    'subject': subject,
+    'credits': credits,
+    'description': description,
+    'prerequisites': prerequisites,
+  };
+
+  factory DemoCourse.fromJson(Map<String, dynamic> json) => DemoCourse(
+    id: json['id'] as String,
+    title: json['title'] as String,
+    subject: json['subject'] as String,
+    credits: json['credits'] as int,
+    description: json['description'] as String? ?? '',
+    prerequisites: (json['prerequisites'] as List? ?? const []).cast<String>(),
+  );
 }
 
 class DemoCreditRequirement {
@@ -147,6 +204,25 @@ class DemoCreditRequirement {
 
   /// Optional higher amount students can still log (e.g. for totals).
   final int? recommended;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'subject': subject,
+    'credits': credits,
+    'unitLabel': unitLabel,
+    'detail': detail,
+    'recommended': recommended,
+  };
+
+  factory DemoCreditRequirement.fromJson(Map<String, dynamic> json) =>
+      DemoCreditRequirement(
+        id: json['id'] as String,
+        subject: json['subject'] as String,
+        credits: json['credits'] as int,
+        unitLabel: json['unitLabel'] as String? ?? 'credits',
+        detail: json['detail'] as String?,
+        recommended: json['recommended'] as int?,
+      );
 
   /// Highest amount the +/- controls will accept.
   int get maxTracked =>

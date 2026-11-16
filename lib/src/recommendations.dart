@@ -23,28 +23,37 @@ class StudentPreferences {
 
   List<String> get sortedInterests => interests.toList()..sort();
 
-  String toStorage() => jsonEncode({
+  Map<String, Object?> toJson() => {
     'version': 1,
     'interests': sortedInterests,
     'meetupTime': meetupTime.name,
-  });
+  };
+
+  String toStorage() => jsonEncode(toJson());
+
+  factory StudentPreferences.fromJson(
+    Map<String, dynamic> data,
+    DemoSchool school,
+  ) {
+    final allowed = availableInterests(school).toSet();
+    final rawInterests = data['interests'];
+    return StudentPreferences(
+      interests: rawInterests is List
+          ? rawInterests.whereType<String>().where(allowed.contains)
+          : const [],
+      meetupTime: MeetupTime.values.firstWhere(
+        (time) => time.name == data['meetupTime'],
+        orElse: () => MeetupTime.any,
+      ),
+    );
+  }
 
   factory StudentPreferences.fromStorage(Object? value, DemoSchool school) {
     if (value is! String) return StudentPreferences();
     try {
       final data = jsonDecode(value);
       if (data is! Map<String, dynamic>) return StudentPreferences();
-      final allowed = availableInterests(school).toSet();
-      final rawInterests = data['interests'];
-      return StudentPreferences(
-        interests: rawInterests is List
-            ? rawInterests.whereType<String>().where(allowed.contains)
-            : const [],
-        meetupTime: MeetupTime.values.firstWhere(
-          (time) => time.name == data['meetupTime'],
-          orElse: () => MeetupTime.any,
-        ),
-      );
+      return StudentPreferences.fromJson(data, school);
     } on FormatException {
       return StudentPreferences();
     }

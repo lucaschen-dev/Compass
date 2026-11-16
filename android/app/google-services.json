@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "39388253362",
+    "project_id": "compass-database-480ea",
+    "storage_bucket": "compass-database-480ea.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:39388253362:android:884423d36b3bdb2de7cdab",
+        "android_client_info": {
+          "package_name": "com.lucaschen.compass"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "39388253362-perg1s09s2c0hd55mu2tbqvginuovl5j.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD0eSJDGOZvxuh1tTeiH-t2oM5rSJRQzZI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "39388253362-perg1s09s2c0hd55mu2tbqvginuovl5j.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "39388253362-93asus53bs6l9tuoalks70dm28d0eosc.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.lucaschen.compass"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

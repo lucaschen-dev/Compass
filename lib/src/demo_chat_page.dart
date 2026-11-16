@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'app_ui.dart';
 import 'community_models.dart';
+import 'firebase/compass_remote.dart';
+import 'firebase/compass_scope.dart';
 import 'school_demo.dart';
 
 class DemoChatPage extends StatefulWidget {
@@ -372,6 +374,7 @@ class _ConversationPageState extends State<ConversationPage> {
   String? _replyTo, _photo;
   bool _busy = false;
   Timer? _draft;
+  CompassRemote? _remote;
   ChatThread get thread =>
       widget.c.threads.firstWhere((t) => t.id == widget.threadId);
   @override
@@ -380,10 +383,16 @@ class _ConversationPageState extends State<ConversationPage> {
     if (thread.unread > 0) {
       widget.c.patchThread(thread.id, unread: 0).catchError((_) {});
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _remote = CompassScope.maybeOf(context);
+      unawaited(_remote?.watchThread(widget.threadId));
+    });
   }
 
   @override
   void dispose() {
+    unawaited(_remote?.unwatchThread());
     _draft?.cancel();
     _text.dispose();
     super.dispose();

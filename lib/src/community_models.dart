@@ -291,7 +291,7 @@ class ChatThread {
 }
 
 String communityStoreKey(DemoSchool school, LocalAccount account) =>
-    'compass.preview.${school.id}.community.${Uri.encodeComponent(account.email)}';
+    'compass.preview.${school.id}.community.${Uri.encodeComponent(account.sessionKey)}';
 
 class CommunityController extends ChangeNotifier {
   CommunityController({
@@ -317,6 +317,7 @@ class CommunityController extends ChangeNotifier {
         savedPosts = Set<String>.from(j['saved'] as List? ?? []);
         likedPosts = Set<String>.from(j['liked'] as List? ?? []);
         followedTags = Set<String>.from(j['tags'] as List? ?? []);
+        clubApplies = Set<String>.from(j['clubApplies'] as List? ?? []);
         composerDraft = Map<String, dynamic>.from(
           j['composerDraft'] as Map? ?? {},
         );
@@ -331,7 +332,7 @@ class CommunityController extends ChangeNotifier {
   late CommunityProfile profile;
   late List<CommunityPost> posts;
   late List<ChatThread> threads;
-  Set<String> savedPosts = {}, likedPosts = {}, followedTags = {};
+  Set<String> savedPosts = {}, likedPosts = {}, followedTags = {}, clubApplies = {};
   Map<String, dynamic> composerDraft = {};
   Future<void> _tail = Future.value();
   bool _disposed = false;
@@ -357,6 +358,7 @@ class CommunityController extends ChangeNotifier {
     'saved': savedPosts.toList(),
     'liked': likedPosts.toList(),
     'tags': followedTags.toList(),
+    'clubApplies': clubApplies.toList(),
     'composerDraft': composerDraft,
   });
   Future<void> change(VoidCallback apply) {
@@ -380,6 +382,7 @@ class CommunityController extends ChangeNotifier {
         savedPosts = Set<String>.from(j['saved'] as List);
         likedPosts = Set<String>.from(j['liked'] as List);
         followedTags = Set<String>.from(j['tags'] as List);
+        clubApplies = Set<String>.from(j['clubApplies'] as List? ?? []);
         composerDraft = Map<String, dynamic>.from(j['composerDraft'] as Map);
         rethrow;
       }
@@ -388,11 +391,32 @@ class CommunityController extends ChangeNotifier {
     return next;
   }
 
+  Future<void> replaceLists({
+    List<CommunityPost>? posts,
+    List<ChatThread>? threads,
+    Set<String>? savedPosts,
+    Set<String>? likedPosts,
+    Set<String>? followedTags,
+    Set<String>? clubApplies,
+  }) => change(() {
+    if (posts != null) this.posts = posts;
+    if (threads != null) this.threads = threads;
+    if (savedPosts != null) this.savedPosts = savedPosts;
+    if (likedPosts != null) this.likedPosts = likedPosts;
+    if (followedTags != null) this.followedTags = followedTags;
+    if (clubApplies != null) this.clubApplies = clubApplies;
+  });
+
   Future<void> toggleSaved(String id) => change(
     () => savedPosts.contains(id) ? savedPosts.remove(id) : savedPosts.add(id),
   );
   Future<void> toggleLiked(String id) => change(
     () => likedPosts.contains(id) ? likedPosts.remove(id) : likedPosts.add(id),
+  );
+  Future<void> toggleClubApply(String clubId) => change(
+    () => clubApplies.contains(clubId)
+        ? clubApplies.remove(clubId)
+        : clubApplies.add(clubId),
   );
   Future<void> updateThread(ChatThread thread) => change(
     () => threads = [

@@ -5,7 +5,7 @@ import 'fixtures/app_session.dart';
 import 'package:compass_flutter/src/preview_theme.dart';
 import 'package:compass_flutter/src/recommendations.dart';
 import 'package:compass_flutter/src/school_demo.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';

@@ -49,6 +49,7 @@ app.*.map.json
 # Local credentials and signing files
 .env
 .env.*
+!.env.example
 *.sqlite
 *.sqlite-*
 *.sqlite3
@@ -57,6 +58,19 @@ app.*.map.json
 *.p8
 *.p12
 *.mobileprovision
+*.jks
+*.keystore
+key.properties
+**/secrets/
+**/service-account*.json
+**/serviceAccount*.json
+**/*-firebase-adminsdk-*.json
+**/*credentials*.json
+**/google-services.fresh.json
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-emulator-*.log
 
 # Hosted calendar gateway
 /server/node_modules/

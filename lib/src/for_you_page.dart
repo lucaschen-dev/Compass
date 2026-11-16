@@ -1,5 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
+import 'activity_pages.dart';
+import 'community_models.dart';
 import 'demo_activities.dart';
 import 'recommendations.dart';
 import 'school_demo.dart';
@@ -10,11 +12,17 @@ class ForYouPage extends StatelessWidget {
     required this.school,
     required this.preferences,
     required this.onSavePreferences,
+    this.community,
+    this.friendIds = const {},
+    this.onAddFriend,
   });
 
   final DemoSchool school;
   final StudentPreferences preferences;
   final Future<void> Function(StudentPreferences) onSavePreferences;
+  final CommunityController? community;
+  final Set<String> friendIds;
+  final Future<void> Function(String)? onAddFriend;
 
   Future<void> _edit(BuildContext context) => showModalBottomSheet<void>(
     context: context,
@@ -123,6 +131,8 @@ class ForYouPage extends StatelessWidget {
                   const SizedBox(height: 28),
                   LayoutBuilder(
                     builder: (context, content) {
+                      final community = this.community;
+                      final onAddFriend = this.onAddFriend;
                       final sections = [
                         _RecommendationSection(
                           title: 'Peers',
@@ -135,23 +145,75 @@ class ForYouPage extends StatelessWidget {
                         ),
                         _RecommendationSection(
                           title: 'Clubs',
+                          headerAction: community == null
+                              ? null
+                              : TextButton(
+                                  key: const ValueKey('for-you-all-clubs'),
+                                  onPressed: () => openActivityDirectory(
+                                    context,
+                                    school: school,
+                                    community: community,
+                                    friendIds: friendIds,
+                                    onAddFriend: onAddFriend ?? (_) async {},
+                                    clubs: true,
+                                  ),
+                                  child: const Text('All clubs'),
+                                ),
                           emptyMessage: 'No clubs match. Try another interest or meetup time.',
                           children: [
                             for (final match in recommendations.clubs)
                               _ActivityCard(
                                 match: match,
                                 icon: Icons.groups_outlined,
+                                onTap: community == null
+                                    ? null
+                                    : () => openActivityDetail(
+                                        context,
+                                        school: school,
+                                        community: community,
+                                        activity: match.item,
+                                        friendIds: friendIds,
+                                        onAddFriend:
+                                            onAddFriend ?? (_) async {},
+                                        club: true,
+                                      ),
                               ),
                           ],
                         ),
                         _RecommendationSection(
                           title: 'Events',
+                          headerAction: community == null
+                              ? null
+                              : TextButton(
+                                  key: const ValueKey('for-you-all-events'),
+                                  onPressed: () => openActivityDirectory(
+                                    context,
+                                    school: school,
+                                    community: community,
+                                    friendIds: friendIds,
+                                    onAddFriend: onAddFriend ?? (_) async {},
+                                    clubs: false,
+                                  ),
+                                  child: const Text('All events'),
+                                ),
                           emptyMessage: 'No events match. Try another interest or meetup time.',
                           children: [
                             for (final match in recommendations.events)
                               _ActivityCard(
                                 match: match,
                                 icon: Icons.event_outlined,
+                                onTap: community == null
+                                    ? null
+                                    : () => openActivityDetail(
+                                        context,
+                                        school: school,
+                                        community: community,
+                                        activity: match.item,
+                                        friendIds: friendIds,
+                                        onAddFriend:
+                                            onAddFriend ?? (_) async {},
+                                        club: false,
+                                      ),
                               ),
                           ],
                         ),
@@ -363,22 +425,31 @@ class _RecommendationSection extends StatelessWidget {
     required this.title,
     required this.emptyMessage,
     required this.children,
+    this.headerAction,
   });
   final String title;
   final String emptyMessage;
   final List<Widget> children;
+  final Widget? headerAction;
 
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Semantics(
-        header: true,
-        child: Text(
-          title,
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(fontWeight: FontWeight.w400),
-        ),
+      Row(
+        children: [
+          Expanded(
+            child: Semantics(
+              header: true,
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w400),
+              ),
+            ),
+          ),
+          ?headerAction,
+        ],
       ),
       const SizedBox(height: 10),
       if (children.isEmpty)
@@ -454,9 +525,14 @@ class _PeerCard extends StatelessWidget {
 }
 
 class _ActivityCard extends StatelessWidget {
-  const _ActivityCard({required this.match, required this.icon});
+  const _ActivityCard({
+    required this.match,
+    required this.icon,
+    this.onTap,
+  });
   final InterestMatch<DemoActivity> match;
   final IconData icon;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -464,43 +540,49 @@ class _ActivityCard extends StatelessWidget {
     final theme = Theme.of(context);
     return Card(
       key: ValueKey('activity-${activity.id}'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, size: 21),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    activity.title,
-                    style: theme.textTheme.titleMedium,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(icon, size: 21),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      activity.title,
+                      style: theme.textTheme.titleMedium,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              activity.description,
-              style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '${activity.when}\n${activity.location}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.5,
+                  if (onTap != null)
+                    const Icon(Icons.chevron_right_rounded, size: 20),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Matches: ${match.sharedInterests.join(' · ')}',
-              style: theme.textTheme.labelMedium,
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                activity.description,
+                style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '${activity.when}\n${activity.location}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Matches: ${match.sharedInterests.join(' · ')}',
+                style: theme.textTheme.labelMedium,
+              ),
+            ],
+          ),
         ),
       ),
     );

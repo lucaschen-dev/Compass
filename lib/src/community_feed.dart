@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
+import 'activity_pages.dart';
 import 'app_ui.dart';
 import 'community_models.dart';
 import 'for_you_page.dart';
@@ -14,10 +15,14 @@ class CommunityFeed extends StatefulWidget {
     required this.community,
     required this.preferences,
     required this.onSavePreferences,
+    required this.friendIds,
+    required this.onAddFriend,
   });
   final CommunityController community;
   final StudentPreferences preferences;
   final Future<void> Function(StudentPreferences) onSavePreferences;
+  final Set<String> friendIds;
+  final Future<void> Function(String) onAddFriend;
   @override
   State<CommunityFeed> createState() => _CommunityFeedState();
 }
@@ -173,6 +178,58 @@ class _CommunityFeedState extends State<CommunityFeed> {
               ],
             ),
             const Divider(),
+            if (!_forYou) ...[
+              const SizedBox(height: 16),
+              if (c.school.clubs.isNotEmpty)
+                ActivitySpotlightCard(
+                  title: 'Clubs',
+                  activity: spotlightActivity(c.school.clubs, c.school.id),
+                  allLabel: 'All clubs',
+                  onOpenAll: () => openActivityDirectory(
+                    context,
+                    school: c.school,
+                    community: c,
+                    friendIds: widget.friendIds,
+                    onAddFriend: widget.onAddFriend,
+                    clubs: true,
+                  ),
+                  onOpenActivity: () => openActivityDetail(
+                    context,
+                    school: c.school,
+                    community: c,
+                    activity: spotlightActivity(c.school.clubs, c.school.id),
+                    friendIds: widget.friendIds,
+                    onAddFriend: widget.onAddFriend,
+                    club: true,
+                  ),
+                ),
+              if (c.school.events.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                ActivitySpotlightCard(
+                  title: 'Events',
+                  activity: spotlightActivity(c.school.events, c.school.id),
+                  allLabel: 'All events',
+                  onOpenAll: () => openActivityDirectory(
+                    context,
+                    school: c.school,
+                    community: c,
+                    friendIds: widget.friendIds,
+                    onAddFriend: widget.onAddFriend,
+                    clubs: false,
+                  ),
+                  onOpenActivity: () => openActivityDetail(
+                    context,
+                    school: c.school,
+                    community: c,
+                    activity: spotlightActivity(c.school.events, c.school.id),
+                    friendIds: widget.friendIds,
+                    onAddFriend: widget.onAddFriend,
+                    club: false,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+            ],
             if (_forYou) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -246,24 +303,97 @@ class _CommunityFeedState extends State<CommunityFeed> {
                   subtitle: Text(m.sharedInterests.join(' · ')),
                 ),
             ],
-            if (_forYou)
-              for (final section in [
-                (title: 'Clubs', items: recommendations.clubs),
-                (title: 'Events', items: recommendations.events),
-              ])
-                if (section.items.isNotEmpty) ...[
-                  const SizedBox(height: 24),
-                  Text(
-                    section.title,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  for (final m in section.items)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(m.item.title),
-                      subtitle: Text(m.sharedInterests.join(' · ')),
+            if (_forYou) ...[
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Clubs',
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
+                  ),
+                  TextButton(
+                    key: const ValueKey('for-you-all-clubs'),
+                    onPressed: () => openActivityDirectory(
+                      context,
+                      school: c.school,
+                      community: c,
+                      friendIds: widget.friendIds,
+                      onAddFriend: widget.onAddFriend,
+                      clubs: true,
+                    ),
+                    child: const Text('All clubs'),
+                  ),
                 ],
+              ),
+              if (recommendations.clubs.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Text('No clubs match. Try another interest or meetup time.'),
+                )
+              else
+                for (final m in recommendations.clubs)
+                  ListTile(
+                    key: ValueKey('for-you-club-${m.item.id}'),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(m.item.title),
+                    subtitle: Text(m.sharedInterests.join(' · ')),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => openActivityDetail(
+                      context,
+                      school: c.school,
+                      community: c,
+                      activity: m.item,
+                      friendIds: widget.friendIds,
+                      onAddFriend: widget.onAddFriend,
+                      club: true,
+                    ),
+                  ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Events',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  TextButton(
+                    key: const ValueKey('for-you-all-events'),
+                    onPressed: () => openActivityDirectory(
+                      context,
+                      school: c.school,
+                      community: c,
+                      friendIds: widget.friendIds,
+                      onAddFriend: widget.onAddFriend,
+                      clubs: false,
+                    ),
+                    child: const Text('All events'),
+                  ),
+                ],
+              ),
+              if (recommendations.events.isEmpty)
+                const Text('No events match. Try another interest or meetup time.')
+              else
+                for (final m in recommendations.events)
+                  ListTile(
+                    key: ValueKey('for-you-event-${m.item.id}'),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(m.item.title),
+                    subtitle: Text(m.sharedInterests.join(' · ')),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => openActivityDetail(
+                      context,
+                      school: c.school,
+                      community: c,
+                      activity: m.item,
+                      friendIds: widget.friendIds,
+                      onAddFriend: widget.onAddFriend,
+                      club: false,
+                    ),
+                  ),
+            ],
             const SizedBox(height: 80),
           ],
         ),

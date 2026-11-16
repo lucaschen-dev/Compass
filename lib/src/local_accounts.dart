@@ -10,6 +10,59 @@ String accountStoreKey(DemoSchool school) =>
     'compass.preview.${school.id}.accounts';
 String schoolEmailDomain(DemoSchool school) => '${school.id}.example';
 
+/// Sign-in used by the school page. Tests keep [LocalAccounts]; the app uses
+/// Firebase Auth when FlutterFire is configured.
+abstract class SchoolAccounts {
+  String emailFor(String username);
+  LocalAccount? find(String sessionKey);
+  Future<LocalAccount> create({
+    required String username,
+    required String password,
+    required String name,
+    required int grade,
+  });
+  Future<LocalAccount> login(String username, String password);
+  Future<LocalAccount?> restore(String sessionKey);
+  bool get supportsGoogle;
+  String? get googleDisplayName;
+  Future<LocalAccount?> signInWithGoogle();
+  Future<LocalAccount> finishGoogleProfile({
+    required String name,
+    required int grade,
+  });
+  Future<void> cancelGoogle();
+}
+
+String schoolEmailFor(DemoSchool school, String username) {
+  final value = username.trim().toLowerCase();
+  final suffix = '@${schoolEmailDomain(school)}';
+  final local = value.endsWith(suffix)
+      ? value.substring(0, value.length - suffix.length)
+      : value;
+  if (!RegExp(r'^[a-z0-9][a-z0-9._+\-]{0,63}$').hasMatch(local)) {
+    throw const AccountException('Enter your school email username.');
+  }
+  return '$local$suffix';
+}
+
+void validateNewAccount({
+  required String password,
+  required String name,
+  required int grade,
+}) {
+  if (password.length < 10 || password.length > 128) {
+    throw const AccountException(
+      'Use a password between 10 and 128 characters.',
+    );
+  }
+  if (name.trim().length < 2 || name.trim().length > 60) {
+    throw const AccountException('Enter your full name (2–60 characters).');
+  }
+  if (grade < 9 || grade > 12) {
+    throw const AccountException('Choose your grade.');
+  }
+}
+
 class AccountException implements Exception {
   const AccountException(this.message);
   final String message;
@@ -20,14 +73,21 @@ class LocalAccount {
     required this.email,
     required this.name,
     required this.grade,
-    required this.salt,
-    required this.passwordHash,
+    this.salt = '',
+    this.passwordHash = '',
+    this.uid,
   });
   final String email;
   final String name;
   final int grade;
   final String salt;
   final String passwordHash;
+
+  /// Firebase Auth uid. Empty for the on-device demo accounts used in tests.
+  final String? uid;
+
+  /// Session key. Firebase accounts use the Auth uid; local demo accounts use email.
+  String get sessionKey => uid ?? email;
   Map<String, Object> toJson() => {
     'email': email,
     'name': name,
@@ -35,6 +95,15 @@ class LocalAccount {
     'salt': salt,
     'passwordHash': passwordHash,
   };
+
+  /// Public profile fields only — never upload password material to Firestore.
+  Map<String, Object?> toPublicProfileJson({required String schoolId}) => {
+    'email': email,
+    'name': name,
+    'grade': grade,
+    'schoolId': schoolId,
+  };
+
   factory LocalAccount.fromJson(Map<String, dynamic> json) => LocalAccount(
     email: json['email'] as String,
     name: json['name'] as String,
@@ -46,7 +115,7 @@ class LocalAccount {
 
 /// Device-local demonstration accounts. These do not verify school membership
 /// or send mail. A real school must use a configured identity/email service.
-class LocalAccounts {
+class LocalAccounts implements SchoolAccounts {
   LocalAccounts(this.preferences, this.school, Object? stored) {
     try {
       if (stored is String) {
@@ -69,19 +138,14 @@ class LocalAccounts {
     iterations: 600000,
     bits: 256,
   );
+  @override
   LocalAccount? find(String email) => _accounts[email];
 
-  String emailFor(String username) {
-    final value = username.trim().toLowerCase();
-    final suffix = '@${schoolEmailDomain(school)}';
-    final local = value.endsWith(suffix)
-        ? value.substring(0, value.length - suffix.length)
-        : value;
-    if (!RegExp(r'^[a-z0-9][a-z0-9._+\-]{0,63}$').hasMatch(local)) {
-      throw const AccountException('Enter your school email username.');
-    }
-    return '$local$suffix';
-  }
+  @override
+  Future<LocalAccount?> restore(String sessionKey) async => find(sessionKey);
+
+  @override
+  String emailFor(String username) => schoolEmailFor(school, username);
 
   Future<String> _hash(String password, List<int> salt) async {
     // Platform Web Crypto is used in browsers; only salted hashes are saved.
@@ -93,6 +157,7 @@ class LocalAccounts {
     return base64Encode(await key.extractBytes());
   }
 
+  @override
   Future<LocalAccount> create({
     required String username,
     required String password,
@@ -103,17 +168,7 @@ class LocalAccounts {
     if (_accounts.containsKey(email)) {
       throw const AccountException('This demo account already exists. Log in.');
     }
-    if (password.length < 10 || password.length > 128) {
-      throw const AccountException(
-        'Use a password between 10 and 128 characters.',
-      );
-    }
-    if (name.trim().length < 2 || name.trim().length > 60) {
-      throw const AccountException('Enter your full name (2–60 characters).');
-    }
-    if (grade < 9 || grade > 12) {
-      throw const AccountException('Choose your grade.');
-    }
+    validateNewAccount(password: password, name: name, grade: grade);
     final random = Random.secure();
     final salt = List<int>.generate(16, (_) => random.nextInt(256));
     final account = LocalAccount(
@@ -132,6 +187,7 @@ class LocalAccounts {
     return account;
   }
 
+  @override
   Future<LocalAccount> login(String username, String password) async {
     final email = emailFor(username);
     final account = _accounts[email];
@@ -151,4 +207,26 @@ class LocalAccounts {
     }
     return account;
   }
+
+  @override
+  bool get supportsGoogle => false;
+
+  @override
+  String? get googleDisplayName => null;
+
+  @override
+  Future<LocalAccount?> signInWithGoogle() async {
+    throw const AccountException('Google sign-in is not available.');
+  }
+
+  @override
+  Future<LocalAccount> finishGoogleProfile({
+    required String name,
+    required int grade,
+  }) async {
+    throw const AccountException('Google sign-in is not available.');
+  }
+
+  @override
+  Future<void> cancelGoogle() async {}
 }

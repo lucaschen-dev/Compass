@@ -1,4 +1,8 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/compass_welcome.dart';
@@ -9,6 +13,14 @@ import 'src/community_models.dart';
 import 'src/school_auth_page.dart';
 import 'src/preview_shell.dart';
 import 'src/preview_theme.dart';
+import 'src/data/firestore_repositories.dart';
+import 'src/data/user_state.dart';
+import 'src/demo_activities.dart';
+import 'src/firebase/compass_remote.dart';
+import 'src/firebase/compass_scope.dart';
+import 'src/firebase/firebase_accounts.dart';
+import 'src/firebase/firebase_bootstrap.dart';
+import 'src/firebase/firebase_test_env.dart';
 import 'src/recommendations.dart';
 import 'src/school_calendar_data.dart';
 import 'src/school_demo.dart';
@@ -36,6 +48,7 @@ Iterable<String> _requirementIdsFor(DemoSchool school) => {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await FirebaseBootstrap.initialize();
   final preferences = SharedPreferencesAsync();
   Map<String, Object?> saved = {};
   try {
@@ -78,7 +91,11 @@ class _CompassAppState extends State<CompassApp> {
   ThemeMode _themeMode = ThemeMode.system;
   DemoSchool? _school;
   LocalAccount? _account;
-  final _accountsBySchool = <String, LocalAccounts>{};
+  final _accountsBySchool = <String, SchoolAccounts>{};
+  final _syncNotice = ValueNotifier<String?>(null);
+  CompassRemote? _remote;
+  FirestoreGateway? _gateway;
+  bool _restoring = false;
   final _communities = <String, CommunityController>{};
   late final Map<String, Object?> _stored;
   bool _choosingSchool = false;
@@ -101,8 +118,7 @@ class _CompassAppState extends State<CompassApp> {
             .firstOrNull ??
         ThemeMode.system;
     for (final school in demoSchools) {
-      _accountsBySchool[school.id] = LocalAccounts(
-        widget.preferences,
+      _accountsBySchool[school.id] = _accountsFor(
         school,
         saved[accountStoreKey(school)],
       );
@@ -150,6 +166,48 @@ class _CompassAppState extends State<CompassApp> {
       );
       if (_account == null) _school = null;
     }
+    if (FirebaseBootstrap.isReady) {
+      _restoring = true;
+      unawaited(_restoreRemoteSession());
+    }
+  }
+
+  SchoolAccounts _accountsFor(DemoSchool school, Object? stored) {
+    if (FirebaseBootstrap.isReady) {
+      return FirebaseSchoolAccounts(
+        school: school,
+        preferences: widget.preferences,
+      );
+    }
+    if (isFlutterTest) return LocalAccounts(widget.preferences, school, stored);
+    return UnavailableAccounts(school);
+  }
+
+  Future<void> _restoreRemoteSession() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final email = user?.email;
+      if (user == null || email == null) return;
+      var school = demoSchools
+          .where((item) => email.endsWith('@${schoolEmailDomain(item)}'))
+          .firstOrNull;
+      if (school == null) {
+        final profile = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        final schoolId = profile.data()?['schoolId'] as String?;
+        school = demoSchools.where((item) => item.id == schoolId).firstOrNull;
+      }
+      if (school == null) return;
+      final account = await _accountsBySchool[school.id]!.restore(user.uid);
+      if (account == null || !mounted) return;
+      await _enterSchool(school, account);
+    } catch (error) {
+      debugPrint('Could not restore the Compass session: $error');
+    } finally {
+      if (mounted) setState(() => _restoring = false);
+    }
   }
 
   @override
@@ -157,6 +215,8 @@ class _CompassAppState extends State<CompassApp> {
     for (final controller in _communities.values) {
       controller.dispose();
     }
+    unawaited(_remote?.dispose());
+    _syncNotice.dispose();
     super.dispose();
   }
 
@@ -171,6 +231,7 @@ class _CompassAppState extends State<CompassApp> {
         write: (value) async {
           await widget.preferences.setString(key, value);
           _stored[key] = value;
+          _remote?.onCommunityWrite(value);
         },
       ),
     );
@@ -182,6 +243,11 @@ class _CompassAppState extends State<CompassApp> {
   }
 
   Future<void> _logout() async {
+    if (FirebaseBootstrap.isReady) {
+      await FirebaseAuth.instance.signOut();
+    }
+    await _remote?.dispose();
+    _remote = null;
     if (_school case final school?) {
       await widget.preferences.remove('compass.preview.${school.id}.session');
       _stored.remove('compass.preview.${school.id}.session');
@@ -194,6 +260,129 @@ class _CompassAppState extends State<CompassApp> {
       });
     }
   }
+
+  Future<void> _enterSchool(DemoSchool school, LocalAccount account) async {
+    await migrateAccountCalendar(widget.preferences, _stored, school, account);
+    _calendarsByAccount[accountCalendarKey(school, account)] =
+        ImportedSchoolCalendar.fromStorage(
+          _stored[accountCalendarKey(school, account)],
+        );
+    await widget.preferences.setString(
+      'compass.preview.${school.id}.session',
+      account.sessionKey,
+    );
+    await widget.preferences.setString(_selectedSchoolKey, school.id);
+    _stored['compass.preview.${school.id}.session'] = account.sessionKey;
+    await _bindRemote(school, account);
+    if (mounted) {
+      setState(() {
+        _school = school;
+        _account = account;
+      });
+    }
+  }
+
+  Future<void> _bindRemote(DemoSchool school, LocalAccount account) async {
+    final uid = account.uid;
+    await _remote?.dispose();
+    if (!FirebaseBootstrap.isReady || uid == null) {
+      _remote = null;
+      return;
+    }
+    _gateway ??= FirestoreGateway(
+      FirebaseFirestore.instance,
+      widget.preferences,
+    );
+    final remote = CompassRemote(
+      uid: uid,
+      school: school,
+      gateway: _gateway!,
+      readState: () => _stateFor(school, account),
+      applyState: (state) => _applyState(school, state),
+      notice: _syncNotice,
+    );
+    _remote = remote;
+    await remote.hydrate(_community(school, account));
+  }
+
+  UserSchoolState _stateFor(DemoSchool school, LocalAccount account) {
+    final preferences =
+        _preferencesBySchool[school.id] ?? StudentPreferences();
+    final community = _communities[communityStoreKey(school, account)];
+    final friends = (_friendIdsBySchool[school.id] ?? const <String>{}).toList()
+      ..sort();
+    return UserSchoolState(
+      interests: preferences.sortedInterests,
+      meetupTime: preferences.meetupTime.name,
+      friends: friends,
+      clubApplies: (community?.clubApplies ?? const <String>{}).toList()
+        ..sort(),
+      requirementProgress: Map<String, int>.from(
+        _completedBySchool[school.id] ?? const {},
+      ),
+      guideProgress: (_readIdsBySchool[school.id] ?? const <String>{}).toList()
+        ..sort(),
+      savedPosts: (community?.savedPosts ?? const <String>{}).toList()..sort(),
+      likedPosts: (community?.likedPosts ?? const <String>{}).toList()..sort(),
+      followedTags: (community?.followedTags ?? const <String>{}).toList()
+        ..sort(),
+    );
+  }
+
+  Future<void> _applyState(DemoSchool school, UserSchoolState state) async {
+    final preferences = StudentPreferences(
+      interests: state.interests,
+      meetupTime: MeetupTime.values.firstWhere(
+        (time) => time.name == state.meetupTime,
+        orElse: () => MeetupTime.any,
+      ),
+    );
+    await widget.preferences.setString(
+      studentPreferencesKey(school),
+      preferences.toStorage(),
+    );
+    final friends = {
+      for (final chat in school.conversations) chat.personId,
+      ...state.friends,
+    };
+    final previousFriends = _friendIdsBySchool[school.id] ?? {};
+    for (final id in previousFriends.difference(friends)) {
+      if (school.conversations.any((chat) => chat.personId == id)) continue;
+      await widget.preferences.remove(_friendKey(school, id));
+    }
+    for (final id in state.friends) {
+      await widget.preferences.setBool(_friendKey(school, id), true);
+    }
+    final previousRead = _readIdsBySchool[school.id] ?? {};
+    final nextRead = state.guideProgress.toSet();
+    for (final id in previousRead.difference(nextRead)) {
+      await widget.preferences.remove(_cultureReadKey(school, id));
+    }
+    for (final id in nextRead) {
+      await widget.preferences.setBool(_cultureReadKey(school, id), true);
+    }
+    final previousProgress = _completedBySchool[school.id] ?? {};
+    for (final id in previousProgress.keys) {
+      if (!state.requirementProgress.containsKey(id)) {
+        await widget.preferences.remove(_requirementCompletedKey(school, id));
+      }
+    }
+    for (final entry in state.requirementProgress.entries) {
+      await widget.preferences.setInt(
+        _requirementCompletedKey(school, entry.key),
+        entry.value,
+      );
+    }
+    _preferencesBySchool[school.id] = preferences;
+    _friendIdsBySchool[school.id] = friends;
+    _readIdsBySchool[school.id] = nextRead;
+    _completedBySchool[school.id] = Map<String, int>.from(
+      state.requirementProgress,
+    );
+    if (mounted) setState(() {});
+  }
+
+  void _noteSync() => _remote?.schedulePush();
 
   Future<void> _chooseSchool(BuildContext context) async {
     if (_choosingSchool) return;
@@ -221,30 +410,7 @@ class _CompassAppState extends State<CompassApp> {
           );
       if (!mounted || account == null) return;
       try {
-        await migrateAccountCalendar(
-          widget.preferences,
-          _stored,
-          school,
-          account,
-        );
-        _calendarsByAccount[accountCalendarKey(
-          school,
-          account,
-        )] = ImportedSchoolCalendar.fromStorage(
-          _stored[accountCalendarKey(school, account)],
-        );
-        await widget.preferences.setString(
-          'compass.preview.${school.id}.session',
-          account.email,
-        );
-        await widget.preferences.setString(_selectedSchoolKey, school.id);
-        _stored['compass.preview.${school.id}.session'] = account.email;
-        if (mounted) {
-          setState(() {
-            _school = school;
-            _account = account;
-          });
-        }
+        await _enterSchool(school, account);
       } catch (error) {
         debugPrint('Could not save selected school: $error');
         if (!context.mounted) return;
@@ -264,6 +430,7 @@ class _CompassAppState extends State<CompassApp> {
       // https://pub.dev/documentation/shared_preferences/latest/shared_preferences/SharedPreferencesAsync-class.html
       await widget.preferences.setBool(key, value);
       if (mounted) setState(update);
+      _noteSync();
     } finally {
       _pendingWrites.remove(key);
     }
@@ -318,7 +485,7 @@ class _CompassAppState extends State<CompassApp> {
               ucInterest: _ucInterestBySchool[school.id] ?? false,
             )
             .where((item) => item.countsTowardCourseTotal)
-            .fold<int>(0, (sum, item) => sum + (completed[item.id] ?? 0));
+            .fold<int>(0, (total, item) => total + (completed[item.id] ?? 0));
         final totalKey = _requirementCompletedKey(school, totalRequirement.id);
         final currentTotal = completed[totalRequirement.id] ?? 0;
         final fromSubjects = courseSum.clamp(0, totalRequirement.maxTracked);
@@ -331,6 +498,7 @@ class _CompassAppState extends State<CompassApp> {
 
       if (!mounted) return;
       setState(() {});
+      _noteSync();
     } finally {
       _pendingWrites.remove(key);
     }
@@ -349,6 +517,7 @@ class _CompassAppState extends State<CompassApp> {
       // https://pub.dev/packages/shared_preferences#sharedpreferencesasync
       await widget.preferences.setString(key, next.toStorage());
       if (mounted) setState(() => _preferencesBySchool[school.id] = next);
+      _noteSync();
     } finally {
       _pendingWrites.remove(key);
     }
@@ -377,14 +546,18 @@ class _CompassAppState extends State<CompassApp> {
     theme: localCompassTheme(Brightness.light),
     darkTheme: localCompassTheme(Brightness.dark),
     themeMode: _themeMode,
-    home: Builder(
+    home: _restoring
+        ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+        : Builder(
       builder: (context) {
         final school = _school;
         final account = _account;
         if (school == null || account == null) {
           return CompassWelcome(onFindSchool: () => _chooseSchool(context));
         }
-        return PreviewShell(
+        return CompassScope(
+          remote: _remote,
+          child: PreviewShell(
           key: ValueKey(school.id),
           school: school,
           onSwitchSchool: () => _chooseSchool(context),
@@ -408,6 +581,7 @@ class _CompassAppState extends State<CompassApp> {
           completedByRequirement: _completedBySchool[school.id]!,
           onAdjustRequirementCompleted: (requirement, next) =>
               _setRequirementCompleted(school, requirement, next),
+          ),
         );
       },
     ),
