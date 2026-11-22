@@ -148,6 +148,101 @@ void main() {
     expect(remote.containsKey('photo'), isFalse);
   });
 
+  test('my reply syncs on another account’s post', () {
+    final at = DateTime.utc(2026, 11, 15, 12);
+    final otherReply = PostReply(
+      id: 'original',
+      author: 'other-uid',
+      body: 'Room 12',
+      at: at,
+    );
+    final ownReply = PostReply(
+      id: 'own',
+      author: 'me',
+      body: 'Thank you!',
+      at: at,
+    );
+    String encode(List<PostReply> replies) => jsonEncode({
+      'posts': [
+        CommunityPost(
+          id: 'other-post',
+          authorId: 'other-uid',
+          title: 'Lab help',
+          body: 'Where is room 12?',
+          category: PostCategory.question,
+          subtag: 'Classes',
+          at: at,
+          replies: replies,
+        ).toJson(),
+      ],
+    });
+
+    final before = encode([otherReply]);
+    final after = encode([otherReply, ownReply]);
+    final added = diffEncoded(
+      previousEncoded: before,
+      nextEncoded: after,
+      uid: uid,
+    );
+    expect(added.upsertPosts, isEmpty);
+    expect(added.upsertReplies.single.postId, 'other-post');
+    expect(added.upsertReplies.single.reply.id, 'own');
+
+    final removed = diffEncoded(
+      previousEncoded: after,
+      nextEncoded: before,
+      uid: uid,
+    );
+    expect(removed.upsertPosts, isEmpty);
+    expect(removed.deleteReplies.single.postId, 'other-post');
+    expect(removed.deleteReplies.single.replyId, 'own');
+  });
+
+  test('legacy Firebase chat cache retains only own messages and drafts', () {
+    final at = DateTime.utc(2026, 11, 15, 12);
+    final thread = ChatThread(
+      id: 'my-custom-thread',
+      name: 'My group',
+      members: const ['me', 'jordan'],
+      draft: 'My local draft',
+      messages: [
+        ChatMessage(id: 'mine', authorId: 'me', text: 'My message', at: at),
+        ChatMessage(id: 'foreign', authorId: 'other-uid', text: 'Other', at: at),
+      ],
+    );
+    final foreignThread = ChatThread(
+      id: 'another-group',
+      name: 'Another group',
+      members: const ['me', 'jordan'],
+      messages: [
+        ChatMessage(id: 'other', authorId: 'other-uid', text: 'Other', at: at),
+      ],
+    );
+    final controller = CommunityController(
+      school: demoSchools.first,
+      account: const LocalAccount(
+        email: 'alex@alderline.example',
+        name: 'Alex Chen',
+        grade: 11,
+        uid: uid,
+      ),
+      saved: jsonEncode({
+        'version': 1,
+        'profile': const CommunityProfile(name: 'Alex Chen', grade: 11).toJson(),
+        'posts': [],
+        'threads': [thread.toJson(), foreignThread.toJson()],
+      }),
+      write: (_) async {},
+    );
+    addTearDown(controller.dispose);
+
+    final restored = controller.threads.singleWhere((item) => item.id == thread.id);
+    expect(restored.messages.map((message) => message.id), ['mine']);
+    expect(restored.draft, 'My local draft');
+    expect(controller.threads.any((item) => item.id == foreignThread.id), isFalse);
+    expect(jsonDecode(controller.encode())['version'], 2);
+  });
+
   test('delete-for-me stays local and sample authors are not uploaded', () {
     final at = DateTime.utc(2026, 11, 15, 12);
     String encode(List<ChatMessage> messages) => jsonEncode({
