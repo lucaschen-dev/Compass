@@ -78,7 +78,7 @@ class CompassRemote {
         );
       }
       final remotePosts = await gateway.fetchPosts(school.id, uid);
-      final remoteThreads = await gateway.fetchThreads(school.id);
+      final remoteThreads = await gateway.fetchThreads(school.id, uid);
       await controller.replaceLists(
         posts: mergePosts(
           local: controller.posts,
@@ -92,16 +92,16 @@ class CompassRemote {
           hidden: _hidden,
         ),
       );
-      final remoteEmpty = remotePosts.isEmpty && remoteThreads.isEmpty;
       _baseline = controller.encode();
       _latest = _baseline;
       _lastState = jsonEncode(readState().toMap());
       _suppress = false;
       await _seedOwned(
-        remoteEmpty: remoteEmpty,
+        remotePostsEmpty: remotePosts.isEmpty,
         hadState: state != null,
         controller: controller,
       );
+      if (remoteThreads.isEmpty) await _seedPrivateChats(controller);
       final now = DateTime.now().toIso8601String();
       await gateway.preferences.setString(_postsKey, now);
       await gateway.preferences.setString(_threadsKey, now);
@@ -116,7 +116,7 @@ class CompassRemote {
   }
 
   Future<void> _seedOwned({
-    required bool remoteEmpty,
+    required bool remotePostsEmpty,
     required bool hadState,
     required CommunityController controller,
   }) async {
@@ -127,13 +127,17 @@ class CompassRemote {
         await gateway.saveState(uid, school.id, state);
         _lastState = jsonEncode(state.toMap());
       }
-      if (remoteEmpty) {
+      if (remotePostsEmpty) {
+        final delta = diffEncoded(
+          previousEncoded: null,
+          nextEncoded: controller.encode(),
+          uid: uid,
+        );
         await gateway.applyDelta(
           school.id,
-          diffEncoded(
-            previousEncoded: null,
-            nextEncoded: controller.encode(),
-            uid: uid,
+          CommunityDelta(
+            upsertPosts: delta.upsertPosts,
+            upsertReplies: delta.upsertReplies,
           ),
           uid,
         );
@@ -143,6 +147,26 @@ class CompassRemote {
     } catch (_) {
       _reportOffline();
     }
+  }
+
+  Future<void> _seedPrivateChats(CommunityController controller) async {
+    final delta = diffEncoded(
+      previousEncoded: null,
+      nextEncoded: controller.encode(),
+      uid: uid,
+    );
+    // Persist messages first so an interrupted first backup can be retried
+    // before an existing thread makes the account look initialized.
+    await gateway.applyDelta(
+      school.id,
+      CommunityDelta(upsertMessages: delta.upsertMessages),
+      uid,
+    );
+    await gateway.applyDelta(
+      school.id,
+      CommunityDelta(upsertThreads: delta.upsertThreads),
+      uid,
+    );
   }
 
   Future<void> flush() async {
@@ -206,7 +230,7 @@ class CompassRemote {
     if (controller == null) return;
     if (!force && !await _stale(_threadsKey)) return;
     try {
-      final remote = await gateway.fetchThreads(school.id);
+      final remote = await gateway.fetchThreads(school.id, uid);
       final merged = mergeThreads(
         local: controller!.threads,
         remote: remote,
