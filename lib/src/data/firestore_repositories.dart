@@ -27,8 +27,10 @@ class FirestoreGateway {
   CollectionReference<Map<String, dynamic>> _posts(String schoolId) =>
       firestore.collection('schools').doc(schoolId).collection('posts');
 
-  CollectionReference<Map<String, dynamic>> _threads(String schoolId) =>
-      firestore.collection('schools').doc(schoolId).collection('threads');
+  CollectionReference<Map<String, dynamic>> _threads(
+    String schoolId,
+    String uid,
+  ) => stateRef(uid, schoolId).collection('threads');
 
   Future<List<Map<String, Object?>>> listSchools() async {
     if (_catalogLoaded) {
@@ -145,11 +147,10 @@ class FirestoreGateway {
     for (final change in delta.upsertReplies) {
       final payload = remoteReplyJson(change.reply, uid);
       if (containsForbiddenRemoteKeys(payload)) continue;
-      await _posts(schoolId)
-          .doc(change.postId)
-          .collection('replies')
-          .doc(change.reply.id)
-          .set(payload);
+      final post = _posts(schoolId).doc(change.postId);
+      // Sample posts are local and do not have a Firestore parent.
+      if (!(await post.get()).exists) continue;
+      await post.collection('replies').doc(change.reply.id).set(payload);
     }
     for (final removal in delta.deleteReplies) {
       await _posts(schoolId)
@@ -161,12 +162,12 @@ class FirestoreGateway {
     for (final thread in delta.upsertThreads) {
       final payload = remoteThreadJson(thread);
       if (containsForbiddenRemoteKeys(payload)) continue;
-      await _threads(schoolId).doc(thread.id).set(payload);
+      await _threads(schoolId, uid).doc(thread.id).set(payload);
     }
     for (final change in delta.upsertMessages) {
       final payload = remoteMessageJson(change.message, uid);
       if (containsForbiddenRemoteKeys(payload)) continue;
-      await _threads(schoolId)
+      await _threads(schoolId, uid)
           .doc(change.threadId)
           .collection('messages')
           .doc(change.message.id)
@@ -178,8 +179,8 @@ class FirestoreGateway {
     }
   }
 
-  Future<List<ChatThread>> fetchThreads(String schoolId) async {
-    final snap = await _threads(schoolId).get();
+  Future<List<ChatThread>> fetchThreads(String schoolId, String uid) async {
+    final snap = await _threads(schoolId, uid).get();
     return [
       for (final doc in snap.docs)
         localThreadFromRemote({...doc.data(), 'id': doc.id}),
@@ -191,7 +192,7 @@ class FirestoreGateway {
     String threadId,
     String uid,
   ) async {
-    final snap = await _threads(schoolId)
+    final snap = await _threads(schoolId, uid)
         .doc(threadId)
         .collection('messages')
         .get();
@@ -205,7 +206,7 @@ class FirestoreGateway {
     String schoolId,
     String threadId,
     String uid,
-  ) => _threads(schoolId)
+  ) => _threads(schoolId, uid)
       .doc(threadId)
       .collection('messages')
       .snapshots()
