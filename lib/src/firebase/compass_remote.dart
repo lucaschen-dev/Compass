@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import '../campus_photo_media.dart';
 import '../community_models.dart';
 import '../data/firestore_repositories.dart';
 import '../data/sync_codec.dart';
@@ -38,6 +39,7 @@ class CompassRemote {
   StreamSubscription<List<ChatMessage>>? _messages;
   String? _watching;
   final _hidden = <String>{};
+  final _acknowledgedGalleryPosts = <String, CommunityPost>{};
 
   String get _hiddenKey => 'compass.sync.$uid.${school.id}.hiddenMessages';
   String get _postsKey => 'compass.sync.$uid.${school.id}.postsAt';
@@ -169,6 +171,23 @@ class CompassRemote {
     );
   }
 
+  Future<void> publishGalleryPost(CommunityPost post) async {
+    if (post.category != PostCategory.gallery ||
+        !post.sharedGalleryMedia ||
+        !ownsAuthor(post.authorId, uid) ||
+        post.photos.isEmpty ||
+        post.photos.length > galleryPhotoLimit ||
+        !post.photos.every(isSharedGalleryPhoto)) {
+      throw ArgumentError('Choose up to $galleryPhotoLimit photos to publish.');
+    }
+    // Only the post document is written. Replies are a separate collection.
+    // The composer keeps the same ID on retry, including after a timeout.
+    await gateway
+        .applyDelta(school.id, CommunityDelta(upsertPosts: [post]), uid)
+        .timeout(const Duration(seconds: 18));
+    _acknowledgedGalleryPosts[post.id] = post;
+  }
+
   Future<void> flush() async {
     final current = controller;
     final encoded = _latest ?? current?.encode();
@@ -177,6 +196,7 @@ class CompassRemote {
       previousEncoded: _baseline,
       nextEncoded: encoded,
       uid: uid,
+      acknowledgedPosts: _acknowledgedGalleryPosts,
     );
     if (delta.hiddenMessageIds.isNotEmpty) {
       _hidden.addAll(delta.hiddenMessageIds);
@@ -190,6 +210,7 @@ class CompassRemote {
     final stateChanged = stateJson != _lastState;
     if (delta.isEmpty && !stateChanged) {
       _baseline = encoded;
+      _forgetAcknowledgedPosts(encoded);
       return;
     }
     try {
@@ -197,8 +218,17 @@ class CompassRemote {
       if (!delta.isEmpty) await gateway.applyDelta(school.id, delta, uid);
       _baseline = encoded;
       _lastState = stateJson;
+      _forgetAcknowledgedPosts(encoded);
     } catch (_) {
       _reportOffline();
+    }
+  }
+
+  void _forgetAcknowledgedPosts(String encoded) {
+    if (_acknowledgedGalleryPosts.isEmpty) return;
+    final snapshot = jsonDecode(encoded) as Map<String, dynamic>;
+    for (final post in snapshot['posts'] as List) {
+      _acknowledgedGalleryPosts.remove((post as Map)['id']);
     }
   }
 
@@ -257,12 +287,11 @@ class CompassRemote {
     try {
       final messages = await gateway.fetchMessages(school.id, threadId, uid);
       await _applyMessages(threadId, messages);
-      _messages = gateway.watchMessages(school.id, threadId, uid).listen(
-        (incoming) {
-          unawaited(_applyMessages(threadId, incoming));
-        },
-        onError: (_) => _reportOffline(),
-      );
+      _messages = gateway.watchMessages(school.id, threadId, uid).listen((
+        incoming,
+      ) {
+        unawaited(_applyMessages(threadId, incoming));
+      }, onError: (_) => _reportOffline());
     } catch (_) {
       _reportOffline();
     }
@@ -289,7 +318,9 @@ class CompassRemote {
 
   Future<void> _applyMessages(String threadId, List<ChatMessage> remote) async {
     if (_watching != null && _watching != threadId) return;
-    final thread = controller?.threads.where((item) => item.id == threadId).firstOrNull;
+    final thread = controller?.threads
+        .where((item) => item.id == threadId)
+        .firstOrNull;
     if (thread == null) return;
     final merged = mergeMessages(
       local: thread.messages,

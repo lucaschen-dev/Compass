@@ -135,7 +135,14 @@ class FirestoreGateway {
     for (final post in delta.upsertPosts) {
       final payload = remotePostJson(post, uid);
       if (containsForbiddenRemoteKeys(payload)) continue;
-      await _posts(schoolId).doc(post.id).set(payload);
+      final doc = _posts(schoolId).doc(post.id);
+      if (post.sharedGalleryMedia && post.photos.isEmpty) {
+        // Offline caches keep only metadata for shared photo posts.
+        // Merge metadata edits so a cached post cannot clear server media.
+        await doc.set(payload, SetOptions(merge: true));
+      } else {
+        await doc.set(payload);
+      }
     }
     for (final id in delta.deletePostIds) {
       final replies = await _posts(schoolId).doc(id).collection('replies').get();

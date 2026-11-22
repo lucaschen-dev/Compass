@@ -38,7 +38,7 @@ users/{uid}/schools/{schoolId}/threads/{threadId}/messages/{messageId}
 | `followedTags` | string[] |
 | `updatedAt` | timestamp |
 
-**Post:** `id`, `authorId` (the Auth uid), `title`, `body`, `category`, `subtag`, `at`, `anonymous`, `priority`, `askedPerson`, `photos`, `likes`. Replies are not embedded. Inline `data:` photos stay on the device.
+**Post:** `id`, `authorId` (the Auth uid), `title`, `body`, `category`, `subtag`, `at`, `anonymous`, `priority`, `askedPerson`, `photos`, `likes`. Replies are separate documents. Photo Gallery posts can embed up to four compressed base64 photos (160,000 characters each). Compass rebuilds shared photos from pixels, omitting original metadata. Photos attached to non-gallery posts and demo chats stay on the device.
 
 **Reply:** `id`, `author`, `authorId`, `body`, `at`.
 

@@ -14,6 +14,7 @@ class CommunityProfilePage extends StatefulWidget {
     required this.onChangeTheme,
     required this.onLogout,
     required this.onSwitchSchool,
+    this.cloudBacked = false,
   });
   final CommunityController c;
   final String email;
@@ -21,6 +22,7 @@ class CommunityProfilePage extends StatefulWidget {
   final Future<void> Function(ThemeMode) onChangeTheme;
   final Future<void> Function() onLogout;
   final VoidCallback onSwitchSchool;
+  final bool cloudBacked;
   @override
   State<CommunityProfilePage> createState() => _CommunityProfilePageState();
 }
@@ -200,6 +202,8 @@ class _CommunityProfilePageState extends State<CommunityProfilePage> {
                     onChangeTheme: widget.onChangeTheme,
                     onLogout: widget.onLogout,
                     onSwitchSchool: widget.onSwitchSchool,
+                    community: widget.c,
+                    cloudBacked: widget.cloudBacked,
                   ),
                 ),
               ),
@@ -314,6 +318,8 @@ class _SettingsPage extends StatefulWidget {
     required this.onChangeTheme,
     required this.onLogout,
     required this.onSwitchSchool,
+    required this.community,
+    required this.cloudBacked,
   });
   final DemoSchool school;
   final String email;
@@ -321,6 +327,8 @@ class _SettingsPage extends StatefulWidget {
   final Future<void> Function(ThemeMode) onChangeTheme;
   final Future<void> Function() onLogout;
   final VoidCallback onSwitchSchool;
+  final CommunityController community;
+  final bool cloudBacked;
   @override
   State<_SettingsPage> createState() => _SettingsPageState();
 }
@@ -386,19 +394,12 @@ class _SettingsPageState extends State<_SettingsPage> {
           leading: const Icon(Icons.lock_outline),
           title: const Text('Privacy'),
           trailing: const Icon(Icons.chevron_right),
-          onTap: () => showDialog<void>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Local demo'),
-              content: const Text(
-                'Your profile, posts, and messages are saved on this device. This demo does not verify school membership or send messages to other people.',
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => _PrivacyPage(
+                community: widget.community,
+                cloudBacked: widget.cloudBacked,
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Done'),
-                ),
-              ],
             ),
           ),
         ),
@@ -424,5 +425,68 @@ class _SettingsPageState extends State<_SettingsPage> {
         ),
       ],
     ),
+  );
+}
+
+class _PrivacyPage extends StatelessWidget {
+  const _PrivacyPage({required this.community, required this.cloudBacked});
+
+  final CommunityController community;
+  final bool cloudBacked;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: community,
+    builder: (context, _) {
+      final blocked = community.threads.where(
+        (thread) => !thread.group && thread.left,
+      );
+      final text = Theme.of(context).textTheme;
+      return Scaffold(
+        appBar: AppBar(title: const Text('Privacy')),
+        body: ContentColumn(
+          maxWidth: 600,
+          children: [
+            Text('Who can see your activity?', style: text.titleLarge),
+            const SizedBox(height: 12),
+            Text(
+              cloudBacked
+                  ? 'Posts you share can be read by Compass accounts set up for this school. Your demo conversations are visible to you and use account-scoped Firebase backups. Those backups do not use end-to-end encryption.'
+                  : 'Your posts and demo conversations are saved in this browser or on this device.',
+              style: text.bodyLarge,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Chats use sample classmates. Chat drafts and photos you attach to a demo chat stay on this device.',
+              style: text.bodyLarge,
+            ),
+            const SizedBox(height: 28),
+            Text('Blocked demo chats', style: text.titleLarge),
+            const SizedBox(height: 8),
+            if (blocked.isEmpty) const Text('No blocked demo chats.'),
+            for (final thread in blocked)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(thread.name),
+                trailing: TextButton(
+                  onPressed: () => appSave(
+                    context,
+                    () => community.change(() {
+                      community.threads = [
+                        for (final current in community.threads)
+                          if (current.id == thread.id && !current.group)
+                            current.copyWith(left: false)
+                          else
+                            current,
+                      ];
+                    }),
+                  ),
+                  child: const Text('Unblock'),
+                ),
+              ),
+          ],
+        ),
+      );
+    },
   );
 }

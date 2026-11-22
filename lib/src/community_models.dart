@@ -95,6 +95,7 @@ class CommunityPost {
     this.priority = 'Normal',
     this.askedPerson,
     this.photos = const [],
+    this.sharedGalleryMedia = false,
     this.replies = const [],
     this.likes = 0,
   });
@@ -104,6 +105,7 @@ class CommunityPost {
   final bool anonymous;
   final String? askedPerson;
   final List<String> photos;
+  final bool sharedGalleryMedia;
   final List<PostReply> replies;
   final int likes;
   bool get important =>
@@ -123,6 +125,7 @@ class CommunityPost {
         priority: priority,
         askedPerson: askedPerson,
         photos: photos,
+        sharedGalleryMedia: sharedGalleryMedia,
         replies: replies ?? this.replies,
         likes: likes,
       );
@@ -138,6 +141,7 @@ class CommunityPost {
     'priority': priority,
     'askedPerson': askedPerson,
     'photos': photos,
+    if (sharedGalleryMedia) 'sharedGalleryMedia': true,
     'replies': replies.map((r) => r.toJson()).toList(),
     'likes': likes,
   };
@@ -153,6 +157,7 @@ class CommunityPost {
     priority: j['priority'] as String? ?? 'Normal',
     askedPerson: j['askedPerson'] as String?,
     photos: List<String>.from(j['photos'] as List? ?? []),
+    sharedGalleryMedia: j['sharedGalleryMedia'] == true,
     replies: (j['replies'] as List? ?? [])
         .map((r) => PostReply.fromJson(r as Map<String, dynamic>))
         .toList(),

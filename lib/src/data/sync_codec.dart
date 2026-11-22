@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../campus_photo_media.dart';
 import '../community_models.dart';
 
 const remoteStaleAfter = Duration(minutes: 5);
@@ -77,9 +78,26 @@ Map<String, Object?> remotePostJson(CommunityPost post, String uid) => {
   'anonymous': post.anonymous,
   'priority': post.priority,
   'askedPerson': post.askedPerson,
-  'photos': post.photos.where(cloudPhoto).toList(),
+  if (!post.sharedGalleryMedia || post.photos.isNotEmpty)
+    'photos': post.category == PostCategory.gallery && post.sharedGalleryMedia
+        ? post.photos
+              .where(isSharedGalleryPhoto)
+              .take(galleryPhotoLimit)
+              .toList()
+        : post.photos.where(cloudPhoto).toList(),
   'likes': post.likes,
 };
+
+/// Keep synced metadata, drafts, and pre-existing local photos on this device.
+/// Shared albums are reloaded from Firestore so they don't fill browser storage.
+String compactSharedGalleryCache(String encoded) {
+  if (!encoded.contains('"sharedGalleryMedia":true')) return encoded;
+  final snapshot = jsonDecode(encoded) as Map<String, dynamic>;
+  for (final post in (snapshot['posts'] as List).cast<Map<String, dynamic>>()) {
+    if (post['sharedGalleryMedia'] == true) post['photos'] = const <String>[];
+  }
+  return jsonEncode(snapshot);
+}
 
 Map<String, Object?> remoteReplyJson(PostReply reply, String uid) => {
   'id': reply.id,
@@ -111,7 +129,8 @@ Map<String, Object?> remoteMessageJson(ChatMessage message, String uid) => {
   'reaction': message.reaction,
   'unsent': message.unsent,
   'edited': message.edited,
-  if (message.photo != null && cloudPhoto(message.photo!)) 'photo': message.photo,
+  if (message.photo != null && cloudPhoto(message.photo!))
+    'photo': message.photo,
 };
 
 CommunityPost localPostFromRemote(
@@ -120,19 +139,27 @@ CommunityPost localPostFromRemote(
   List<String> keepPhotos = const [],
   List<PostReply> replies = const [],
 }) {
-  final photos = List<String>.from(json['photos'] as List? ?? []);
+  final category = PostCategory.values.byName(json['category'] as String);
+  final incoming = (json['photos'] as List? ?? []).whereType<String>();
+  final shared = category == PostCategory.gallery
+      ? incoming.where(isSharedGalleryPhoto).take(galleryPhotoLimit).toList()
+      : const <String>[];
+  final photos = shared.isNotEmpty
+      ? shared
+      : incoming.where(cloudPhoto).toList();
   return CommunityPost(
     id: json['id'] as String,
     authorId: localAuthor(json['authorId'] as String? ?? '', uid),
     title: json['title'] as String? ?? '',
     body: json['body'] as String? ?? '',
-    category: PostCategory.values.byName(json['category'] as String),
+    category: category,
     subtag: json['subtag'] as String? ?? '',
     at: DateTime.parse(json['at'] as String),
     anonymous: json['anonymous'] == true,
     priority: json['priority'] as String? ?? 'Normal',
     askedPerson: json['askedPerson'] as String?,
     photos: photos.isEmpty ? keepPhotos : photos,
+    sharedGalleryMedia: shared.isNotEmpty,
     replies: replies,
     likes: (json['likes'] as num?)?.toInt() ?? 0,
   );
@@ -155,7 +182,8 @@ ChatMessage localMessageFromRemote(
   String uid, {
   String? keepPhoto,
 }) {
-  final sender = json['senderId'] as String? ?? json['authorId'] as String? ?? '';
+  final sender =
+      json['senderId'] as String? ?? json['authorId'] as String? ?? '';
   final created = json['createdAt'] ?? json['at'];
   return ChatMessage(
     id: json['id'] as String,
@@ -212,6 +240,9 @@ List<CommunityPost> mergePosts({
       photos: incoming.photos.isEmpty
           ? (existing?.photos ?? const [])
           : incoming.photos,
+      sharedGalleryMedia: incoming.photos.isNotEmpty
+          ? incoming.sharedGalleryMedia
+          : existing?.sharedGalleryMedia ?? incoming.sharedGalleryMedia,
       replies: mergeReplies(
         local: existing?.replies ?? const [],
         remote: incoming.replies,
@@ -287,7 +318,9 @@ List<ChatThread> mergeThreads({
             hidden: hidden,
           );
     byId[incoming.id] = incoming.copyWith(
-      messages: messages.where((message) => !hidden.contains(message.id)).toList(),
+      messages: messages
+          .where((message) => !hidden.contains(message.id))
+          .toList(),
       draft: existing?.draft ?? incoming.draft,
     );
   }
@@ -333,6 +366,7 @@ CommunityDelta diffEncoded({
   required String? previousEncoded,
   required String nextEncoded,
   required String uid,
+  Map<String, CommunityPost> acknowledgedPosts = const {},
 }) {
   final previous = _decode(previousEncoded);
   final next = _decode(nextEncoded);
@@ -346,13 +380,21 @@ CommunityDelta diffEncoded({
 
   for (final post in afterPosts.values) {
     final before = beforePosts[post.id];
-    if (ownsAuthor(post.authorId, uid) &&
-        (before == null ||
-            jsonEncode(remotePostJson(before, uid)) !=
-                jsonEncode(remotePostJson(post, uid)))) {
-      upsertPosts.add(post);
+    if (ownsAuthor(post.authorId, uid)) {
+      final payload = jsonEncode(remotePostJson(post, uid));
+      final acknowledged = acknowledgedPosts[post.id];
+      final alreadyPublished =
+          acknowledged != null &&
+          jsonEncode(remotePostJson(acknowledged, uid)) == payload;
+      if (!alreadyPublished &&
+          (before == null ||
+              jsonEncode(remotePostJson(before, uid)) != payload)) {
+        upsertPosts.add(post);
+      }
     }
-    final beforeReplies = {for (final reply in before?.replies ?? const []) reply.id: reply};
+    final beforeReplies = {
+      for (final reply in before?.replies ?? const []) reply.id: reply,
+    };
     final afterReplies = {for (final reply in post.replies) reply.id: reply};
     for (final reply in afterReplies.values) {
       if (!ownsAuthor(reply.author, uid)) continue;
@@ -364,7 +406,8 @@ CommunityDelta diffEncoded({
       }
     }
     for (final reply in beforeReplies.values) {
-      if (ownsAuthor(reply.author, uid) && !afterReplies.containsKey(reply.id)) {
+      if (ownsAuthor(reply.author, uid) &&
+          !afterReplies.containsKey(reply.id)) {
         deleteReplies.add(ReplyRemoval(post.id, reply.id));
       }
     }
@@ -375,7 +418,9 @@ CommunityDelta diffEncoded({
     }
   }
 
-  final beforeThreads = {for (final thread in _threads(previous)) thread.id: thread};
+  final beforeThreads = {
+    for (final thread in _threads(previous)) thread.id: thread,
+  };
   final afterThreads = {for (final thread in _threads(next)) thread.id: thread};
   final upsertThreads = <ChatThread>[];
   final upsertMessages = <MessageChange>[];
@@ -388,7 +433,9 @@ CommunityDelta diffEncoded({
     final beforeMessages = {
       for (final message in before?.messages ?? const []) message.id: message,
     };
-    final afterMessages = {for (final message in thread.messages) message.id: message};
+    final afterMessages = {
+      for (final message in thread.messages) message.id: message,
+    };
     for (final message in afterMessages.values) {
       if (!ownsAuthor(message.authorId, uid)) continue;
       final prior = beforeMessages[message.id];

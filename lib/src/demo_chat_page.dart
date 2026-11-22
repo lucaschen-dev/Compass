@@ -5,10 +5,15 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'app_ui.dart';
+import 'chat_friend_directory.dart';
+import 'chat_reply_gesture.dart';
 import 'community_models.dart';
 import 'firebase/compass_remote.dart';
 import 'firebase/compass_scope.dart';
 import 'school_demo.dart';
+
+export 'chat_friend_directory.dart'
+    show isBlockedClassmate, openSchoolFriendDirectory;
 
 class DemoChatPage extends StatefulWidget {
   const DemoChatPage({
@@ -28,6 +33,21 @@ class DemoChatPage extends StatefulWidget {
 
 class _DemoChatPageState extends State<DemoChatPage> {
   String _query = '', _filter = 'All';
+
+  Future<void> _addFriend() => openSchoolFriendDirectory(
+    context,
+    school: widget.school,
+    friendIds: widget.friendIds,
+    onAddFriend: widget.onAddFriend,
+    isBlocked: (id) => isBlockedClassmate(widget.community, id),
+    onMessage: _messageFriend,
+  );
+
+  Future<void> _messageFriend(DemoPerson person) async {
+    final chat = await _openOrCreateDirectChat(widget.community, person);
+    if (mounted) _open(chat);
+  }
+
   Future<void> _new() => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -84,11 +104,13 @@ class _DemoChatPageState extends State<DemoChatPage> {
                 Navigator.pop(context);
                 appSave(
                   this.context,
-                  () => widget.community.updateThread(switch (action.value) {
-                    0 => t.copyWith(pinned: !t.pinned),
-                    1 => t.copyWith(archived: !t.archived),
-                    2 => t.copyWith(muted: !t.muted),
-                    _ => t.copyWith(unread: t.unread > 0 ? 0 : 1),
+                  () => _changeThread(widget.community, t.id, (current) {
+                    return switch (action.value) {
+                      0 => current.copyWith(pinned: !t.pinned),
+                      1 => current.copyWith(archived: !t.archived),
+                      2 => current.copyWith(muted: !t.muted),
+                      _ => current.copyWith(unread: t.unread > 0 ? 0 : 1),
+                    };
                   }),
                 );
               },
@@ -117,18 +139,35 @@ class _DemoChatPageState extends State<DemoChatPage> {
           });
     return ContentColumn(
       children: [
-        Row(
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text('Chat', style: Theme.of(context).textTheme.headlineLarge),
-            const Spacer(),
-            IconButton(
-              tooltip: 'New chat',
-              onPressed: _new,
-              icon: const Icon(Icons.edit_square),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                TextButton.icon(
+                  onPressed: _addFriend,
+                  icon: const Icon(Icons.person_add_outlined, size: 20),
+                  label: const Text('Add friend'),
+                ),
+                IconButton(
+                  tooltip: 'New chat',
+                  onPressed: _new,
+                  icon: const Icon(Icons.edit_square),
+                ),
+              ],
             ),
           ],
         ),
-        const SizedBox(height: 22),
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 18),
+          child: Text(
+            'Demo conversations with sample classmates.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
         TextField(
           decoration: const InputDecoration(
             hintText: 'Search conversations',
@@ -155,9 +194,13 @@ class _DemoChatPageState extends State<DemoChatPage> {
         ),
         const SizedBox(height: 18),
         if (threads.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 36),
-            child: Text('No conversations here.'),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Text(
+              _query.isEmpty && _filter == 'All'
+                  ? 'Start a conversation with a sample classmate.'
+                  : 'No conversations match this view.',
+            ),
           ),
         for (final t in threads) ...[
           ListTile(
@@ -217,6 +260,40 @@ class _DemoChatPageState extends State<DemoChatPage> {
   }
 }
 
+Future<void> _changeThread(
+  CommunityController community,
+  String threadId,
+  ChatThread Function(ChatThread) update,
+) => community.change(() {
+  community.threads = [
+    for (final thread in community.threads)
+      if (thread.id == threadId) update(thread) else thread,
+  ];
+});
+
+Future<ChatThread> _openOrCreateDirectChat(
+  CommunityController community,
+  DemoPerson person,
+) async {
+  final existing = community.threads
+      .where((thread) => !thread.group && thread.members.contains(person.id))
+      .firstOrNull;
+  if (existing != null) return existing;
+
+  final thread = ChatThread(
+    id: 'direct-${person.id}',
+    name: person.name,
+    members: ['me', person.id],
+    messages: [],
+  );
+  await community.change(() {
+    if (!community.threads.any((existing) => existing.id == thread.id)) {
+      community.threads = [...community.threads, thread];
+    }
+  });
+  return community.threads.firstWhere((existing) => existing.id == thread.id);
+}
+
 class _NewChat extends StatefulWidget {
   const _NewChat({required this.c, required this.onOpen, this.onAddFriend});
   final CommunityController c;
@@ -245,21 +322,24 @@ class _NewChatState extends State<_NewChat> {
       showAppError(context, 'Name the group and choose at least two people.');
       return;
     }
-    final id = group ? 'group-${widget.c.newId()}' : 'direct-${person!.id}';
-    final existing = widget.c.threads.where((t) => t.id == id).firstOrNull;
-    final thread =
-        existing ??
-        ChatThread(
-          id: id,
-          name: group ? _name.text.trim() : person!.name,
-          members: ['me', ...members],
-          messages: [],
-          group: group,
-        );
+    if (members.any((id) => isBlockedClassmate(widget.c, id))) {
+      showAppError(context, 'Remove blocked contacts before starting a chat.');
+      return;
+    }
     setState(() => _busy = true);
     try {
-      if (person != null) await widget.onAddFriend?.call(person.id);
-      if (existing == null) {
+      final ChatThread thread;
+      if (person != null) {
+        await widget.onAddFriend?.call(person.id);
+        thread = await _openOrCreateDirectChat(widget.c, person);
+      } else {
+        thread = ChatThread(
+          id: 'group-${widget.c.newId()}',
+          name: _name.text.trim(),
+          members: ['me', ...members],
+          messages: [],
+          group: true,
+        );
         await widget.c.change(
           () => widget.c.threads = [...widget.c.threads, thread],
         );
@@ -323,7 +403,9 @@ class _NewChatState extends State<_NewChat> {
             child: ListView(
               children: [
                 for (final person in widget.c.school.classmates.where(
-                  (p) => p.name.toLowerCase().contains(_query),
+                  (p) =>
+                      p.name.toLowerCase().contains(_query) &&
+                      !isBlockedClassmate(widget.c, p.id),
                 ))
                   ListTile(
                     leading: StudentAvatar(name: person.name),
@@ -371,12 +453,21 @@ class ConversationPage extends StatefulWidget {
 
 class _ConversationPageState extends State<ConversationPage> {
   late final _text = TextEditingController(text: thread.draft);
-  String? _replyTo, _photo;
+  final _composerFocus = FocusNode();
+  final _messages = ScrollController();
+  String? _replyTo, _photo, _enteringMessage;
   bool _busy = false;
   Timer? _draft;
   CompassRemote? _remote;
   ChatThread get thread =>
       widget.c.threads.firstWhere((t) => t.id == widget.threadId);
+
+  bool get _unavailable =>
+      thread.left ||
+      (!thread.group &&
+          thread.members.any(
+            (id) => id != 'me' && isBlockedClassmate(widget.c, id),
+          ));
   @override
   void initState() {
     super.initState();
@@ -393,7 +484,10 @@ class _ConversationPageState extends State<ConversationPage> {
   @override
   void dispose() {
     unawaited(_remote?.unwatchThread());
+    if (_draft?.isActive == true) _saveDraft(_text.text);
     _draft?.cancel();
+    _messages.dispose();
+    _composerFocus.dispose();
     _text.dispose();
     super.dispose();
   }
@@ -401,57 +495,96 @@ class _ConversationPageState extends State<ConversationPage> {
   void _draftChanged(String value) {
     _draft?.cancel();
     _draft = Timer(const Duration(milliseconds: 500), () {
-      widget.c.patchThread(thread.id, draft: value).catchError((_) {});
+      _saveDraft(value);
     });
   }
 
+  void _saveDraft(String value) {
+    unawaited(
+      widget.c.patchThread(widget.threadId, draft: value).catchError((_) {}),
+    );
+  }
+
   Future<void> _send() async {
-    if (_busy || (_text.text.trim().isEmpty && _photo == null)) return;
+    final text = _text.text;
+    final replyTo = _replyTo;
+    final photo = _photo;
+    if (_busy || _unavailable || (text.trim().isEmpty && photo == null)) return;
+    final previousMessageId = thread.messages.lastOrNull?.id;
     _draft?.cancel();
     setState(() => _busy = true);
     try {
       await widget.c.send(
         thread.id,
-        text: _text.text,
-        replyTo: _replyTo,
-        photo: _photo,
+        text: text,
+        replyTo: replyTo,
+        photo: photo,
       );
       if (mounted) {
         setState(() {
-          _text.clear();
-          _replyTo = null;
-          _photo = null;
+          final lastMessage = thread.messages.lastOrNull;
+          if (lastMessage != null &&
+              lastMessage.authorId == 'me' &&
+              lastMessage.id != previousMessageId &&
+              !MediaQuery.disableAnimationsOf(context)) {
+            _enteringMessage = lastMessage.id;
+          }
+          if (_text.text == text) _text.clear();
+          if (_replyTo == replyTo) _replyTo = null;
+          if (_photo == photo) _photo = null;
         });
+        _showLatest();
       }
     } catch (_) {
-      if (mounted) showAppError(context, 'Could not save this message.');
+      if (mounted) {
+        if (_draft?.isActive != true) _saveDraft(_text.text);
+        showAppError(context, 'Could not save this message.');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  void _showLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_messages.hasClients || _messages.offset == 0) return;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _messages.jumpTo(0);
+      } else {
+        unawaited(
+          _messages.animateTo(
+            0,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      }
+    });
+  }
+
+  void _startReply(ChatMessage message) {
+    if (_unavailable || message.unsent) return;
+    setState(() => _replyTo = message.id);
+    _composerFocus.requestFocus();
+  }
+
   Future<void> _modify(ChatMessage message, {String? text, String? reaction}) =>
-      widget.c.change(
-        () => widget.c.threads = [
-          for (final t in widget.c.threads)
-            if (t.id != thread.id)
-              t
-            else
-              t.copyWith(
-                messages: [
-                  for (final m in t.messages)
-                    if (m.id != message.id)
-                      m
-                    else
-                      m.copyWith(
-                        text: text,
-                        edited: text != null ? true : null,
-                        reaction: reaction,
-                      ),
-                ],
-              ),
-        ],
-      );
+      _changeThread(widget.c, widget.threadId, (current) {
+        if (current.left) return current;
+        return current.copyWith(
+          messages: [
+            for (final m in current.messages)
+              if (m.id == message.id && !m.unsent)
+                m.copyWith(
+                  text: text,
+                  edited: text != null ? true : null,
+                  reaction: reaction,
+                )
+              else
+                m,
+          ],
+        );
+      });
   Future<void> _edit(ChatMessage message) async {
     final controller = TextEditingController(text: message.text);
     final text = await showDialog<String>(
@@ -493,7 +626,7 @@ class _ConversationPageState extends State<ConversationPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (!message.unsent)
+          if (!message.unsent && !_unavailable)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
@@ -522,14 +655,15 @@ class _ConversationPageState extends State<ConversationPage> {
               ),
             ),
           if (!message.unsent) ...[
-            ListTile(
-              leading: const Icon(Icons.reply_rounded),
-              title: const Text('Reply'),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                setState(() => _replyTo = message.id);
-              },
-            ),
+            if (!_unavailable)
+              ListTile(
+                leading: const Icon(Icons.reply_rounded),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _startReply(message);
+                },
+              ),
             if (message.text.isNotEmpty)
               ListTile(
                 leading: const Icon(Icons.copy_rounded),
@@ -539,7 +673,7 @@ class _ConversationPageState extends State<ConversationPage> {
                   Navigator.pop(sheetContext);
                 },
               ),
-            if (message.authorId == 'me')
+            if (message.authorId == 'me' && !_unavailable)
               ListTile(
                 leading: const Icon(Icons.edit_outlined),
                 title: const Text('Edit'),
@@ -575,9 +709,11 @@ class _ConversationPageState extends State<ConversationPage> {
                 if (mounted) {
                   await appSave(
                     context,
-                    () => widget.c.updateThread(
-                      thread.copyWith(
-                        messages: thread.messages
+                    () => _changeThread(
+                      widget.c,
+                      widget.threadId,
+                      (current) => current.copyWith(
+                        messages: current.messages
                             .where((m) => m.id != message.id)
                             .toList(),
                       ),
@@ -609,6 +745,12 @@ class _ConversationPageState extends State<ConversationPage> {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineMedium,
             ),
+            const SizedBox(height: 10),
+            const Text(
+              'This is a sample conversation. Messages stay in your Compass '
+              'account and are not delivered to classmates.',
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 24),
             for (final id in thread.members)
               ListTile(
@@ -620,10 +762,13 @@ class _ConversationPageState extends State<ConversationPage> {
               leading: const Icon(Icons.notifications_off_outlined),
               title: Text(thread.muted ? 'Unmute' : 'Mute'),
               onTap: () {
+                final muted = !thread.muted;
                 appSave(
                   this.context,
-                  () => widget.c.updateThread(
-                    thread.copyWith(muted: !thread.muted),
+                  () => _changeThread(
+                    widget.c,
+                    widget.threadId,
+                    (current) => current.copyWith(muted: muted),
                   ),
                 );
                 Navigator.pop(context);
@@ -633,10 +778,13 @@ class _ConversationPageState extends State<ConversationPage> {
               leading: const Icon(Icons.archive_outlined),
               title: Text(thread.archived ? 'Unarchive' : 'Archive'),
               onTap: () {
+                final archived = !thread.archived;
                 appSave(
                   this.context,
-                  () => widget.c.updateThread(
-                    thread.copyWith(archived: !thread.archived),
+                  () => _changeThread(
+                    widget.c,
+                    widget.threadId,
+                    (current) => current.copyWith(archived: archived),
                   ),
                 );
                 Navigator.pop(context);
@@ -649,25 +797,31 @@ class _ConversationPageState extends State<ConversationPage> {
                     ? (thread.left ? 'Group left' : 'Leave group')
                     : (thread.left ? 'Unblock' : 'Block contact'),
               ),
-              onTap: () async {
-                final leave = !thread.left;
-                if (!leave ||
-                    await confirmAction(
-                      context,
-                      title: thread.group
-                          ? 'Leave this group?'
-                          : 'Block this contact?',
-                      action: thread.group ? 'Leave' : 'Block',
-                    )) {
-                  if (mounted && context.mounted) {
-                    await appSave(
-                      this.context,
-                      () => widget.c.updateThread(thread.copyWith(left: leave)),
-                    );
-                    if (context.mounted) Navigator.pop(context);
-                  }
-                }
-              },
+              onTap: thread.group && thread.left
+                  ? null
+                  : () async {
+                      final leave = !thread.left;
+                      if (!leave ||
+                          await confirmAction(
+                            context,
+                            title: thread.group
+                                ? 'Leave this group?'
+                                : 'Block this contact?',
+                            action: thread.group ? 'Leave' : 'Block',
+                          )) {
+                        if (mounted && context.mounted) {
+                          await appSave(
+                            this.context,
+                            () => _changeThread(
+                              widget.c,
+                              widget.threadId,
+                              (current) => current.copyWith(left: leave),
+                            ),
+                          );
+                          if (context.mounted) Navigator.pop(context);
+                        }
+                      }
+                    },
             ),
           ],
         ),
@@ -717,12 +871,21 @@ class _ConversationPageState extends State<ConversationPage> {
                 children: [
                   Expanded(
                     child: ListView.builder(
+                      controller: _messages,
                       reverse: true,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 20,
                         vertical: 20,
                       ),
                       itemCount: t.messages.length,
+                      findChildIndexCallback: (key) {
+                        final index = t.messages.indexWhere(
+                          (message) => key == ValueKey(message.id),
+                        );
+                        return index == -1
+                            ? null
+                            : t.messages.length - 1 - index;
+                      },
                       itemBuilder: (context, index) {
                         final m = t.messages[t.messages.length - 1 - index];
                         final own = m.authorId == 'me';
@@ -730,7 +893,7 @@ class _ConversationPageState extends State<ConversationPage> {
                             .where((v) => v.id == m.replyTo)
                             .firstOrNull;
                         final l10n = MaterialLocalizations.of(context);
-                        return Align(
+                        final row = Align(
                           alignment: own
                               ? Alignment.centerRight
                               : Alignment.centerLeft,
@@ -748,9 +911,12 @@ class _ConversationPageState extends State<ConversationPage> {
                                     ? CrossAxisAlignment.end
                                     : CrossAxisAlignment.start,
                                 children: [
-                                  GestureDetector(
-                                    onLongPress: () => _actions(m),
-                                    onSecondaryTap: () => _actions(m),
+                                  SwipeReply(
+                                    key: ValueKey('reply-${m.id}'),
+                                    onActions: () => _actions(m),
+                                    onReply: m.unsent || _unavailable
+                                        ? null
+                                        : () => _startReply(m),
                                     child: DecoratedBox(
                                       decoration: BoxDecoration(
                                         color: own
@@ -889,40 +1055,78 @@ class _ConversationPageState extends State<ConversationPage> {
                             ),
                           ),
                         );
+                        return KeyedSubtree(
+                          key: ValueKey(m.id),
+                          child:
+                              _enteringMessage == m.id &&
+                                  !MediaQuery.disableAnimationsOf(context)
+                              ? TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 0, end: 1),
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeOutCubic,
+                                  child: row,
+                                  onEnd: () {
+                                    if (_enteringMessage == m.id) {
+                                      _enteringMessage = null;
+                                    }
+                                  },
+                                  builder: (context, value, child) =>
+                                      Transform.translate(
+                                        offset: Offset(0, 10 * (1 - value)),
+                                        child: Opacity(
+                                          opacity: .55 + .45 * value,
+                                          child: child,
+                                        ),
+                                      ),
+                                )
+                              : row,
+                        );
                       },
                     ),
                   ),
-                  if (t.left)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text('This conversation is unavailable.'),
+                  if (_unavailable)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        t.group
+                            ? 'You left this demo group.'
+                            : 'Contact blocked. Unblock to write a message.',
+                      ),
                     )
                   else
                     Padding(
                       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
                       child: Column(
                         children: [
-                          if (reply != null)
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _Quote(
-                                    name: widget.c.authorName(reply.authorId),
-                                    text: reply.unsent
-                                        ? 'Message unsent'
-                                        : reply.photo != null
-                                        ? 'Photo'
-                                        : reply.text,
+                          AnimatedSwitcher(
+                            duration: MediaQuery.disableAnimationsOf(context)
+                                ? Duration.zero
+                                : const Duration(milliseconds: 160),
+                            child: reply == null
+                                ? const SizedBox.shrink()
+                                : Row(
+                                    key: ValueKey(reply.id),
+                                    children: [
+                                      Expanded(
+                                        child: _Quote(
+                                          name:
+                                              'Replying to ${widget.c.authorName(reply.authorId)}',
+                                          text: reply.unsent
+                                              ? 'Message unsent'
+                                              : reply.photo != null
+                                              ? 'Photo'
+                                              : reply.text,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Cancel reply',
+                                        onPressed: () =>
+                                            setState(() => _replyTo = null),
+                                        icon: const Icon(Icons.close),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Cancel reply',
-                                  onPressed: () =>
-                                      setState(() => _replyTo = null),
-                                  icon: const Icon(Icons.close),
-                                ),
-                              ],
-                            ),
+                          ),
                           if (_photo != null)
                             Row(
                               children: [
@@ -967,24 +1171,48 @@ class _ConversationPageState extends State<ConversationPage> {
                                 icon: const Icon(Icons.add),
                               ),
                               Expanded(
-                                child: TextField(
-                                  controller: _text,
-                                  onChanged: _draftChanged,
-                                  minLines: 1,
-                                  maxLines: 5,
-                                  maxLength: 2000,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Message',
-                                    counterText: '',
+                                child: CallbackShortcuts(
+                                  bindings: {
+                                    const SingleActivator(
+                                      LogicalKeyboardKey.enter,
+                                      control: true,
+                                    ): _send,
+                                    const SingleActivator(
+                                      LogicalKeyboardKey.enter,
+                                      meta: true,
+                                    ): _send,
+                                  },
+                                  child: TextField(
+                                    controller: _text,
+                                    focusNode: _composerFocus,
+                                    onChanged: _draftChanged,
+                                    minLines: 1,
+                                    maxLines: 5,
+                                    maxLength: 2000,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Message',
+                                      counterText: '',
+                                    ),
+                                    textInputAction: TextInputAction.newline,
                                   ),
-                                  textInputAction: TextInputAction.newline,
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              IconButton.filled(
-                                tooltip: 'Send message',
-                                onPressed: _busy ? null : _send,
-                                icon: const Icon(Icons.arrow_upward_rounded),
+                              ValueListenableBuilder<TextEditingValue>(
+                                valueListenable: _text,
+                                builder: (context, input, child) =>
+                                    IconButton.filled(
+                                      tooltip: 'Send message',
+                                      onPressed:
+                                          _busy ||
+                                              (input.text.trim().isEmpty &&
+                                                  _photo == null)
+                                          ? null
+                                          : _send,
+                                      icon: const Icon(
+                                        Icons.arrow_upward_rounded,
+                                      ),
+                                    ),
                               ),
                             ],
                           ),

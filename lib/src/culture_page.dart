@@ -4,6 +4,22 @@ import 'app_ui.dart';
 import 'course_catalog.dart';
 import 'school_demo.dart';
 
+Future<void> openFacultyDirectory(
+  BuildContext context, {
+  required DemoSchool school,
+  required Set<String> readIds,
+  required Future<void> Function(String) onToggleRead,
+}) => Navigator.of(context).push<void>(
+  MaterialPageRoute(
+    builder: (_) => _GuideSection(
+      school: school,
+      title: 'Faculty & classrooms',
+      readIds: readIds,
+      onToggleRead: onToggleRead,
+    ),
+  ),
+);
+
 class CulturePage extends StatefulWidget {
   const CulturePage({
     super.key,

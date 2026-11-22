@@ -14,6 +14,7 @@ import 'src/school_auth_page.dart';
 import 'src/preview_shell.dart';
 import 'src/preview_theme.dart';
 import 'src/data/firestore_repositories.dart';
+import 'src/data/sync_codec.dart';
 import 'src/data/user_state.dart';
 import 'src/demo_activities.dart';
 import 'src/firebase/compass_remote.dart';
@@ -32,8 +33,8 @@ String _cultureReadKey(DemoSchool school, String id) =>
 
 String _legacyCultureReadKey(String id) => 'compass.preview.culture.read.$id';
 
-String _friendKey(DemoSchool school, String id) =>
-    'compass.preview.${school.id}.friend.${school.student.id}.$id';
+String _friendKey(DemoSchool school, LocalAccount account) =>
+    'compass.preview.${school.id}.friends.${Uri.encodeComponent(account.sessionKey)}';
 
 String _ucInterestKey(DemoSchool school) =>
     'compass.preview.${school.id}.ucInterest';
@@ -101,7 +102,7 @@ class _CompassAppState extends State<CompassApp> {
   bool _choosingSchool = false;
   final _pendingWrites = <String>{};
   final _readIdsBySchool = <String, Set<String>>{};
-  final _friendIdsBySchool = <String, Set<String>>{};
+  final _friendIdsByAccount = <String, Set<String>>{};
   final _preferencesBySchool = <String, StudentPreferences>{};
   final _calendarsByAccount = <String, ImportedSchoolCalendar?>{};
   final _ucInterestBySchool = <String, bool>{};
@@ -144,11 +145,6 @@ class _CompassAppState extends State<CompassApp> {
                       : null)) ==
               true)
             item.id,
-      };
-      _friendIdsBySchool[school.id] = {
-        for (final chat in school.conversations) chat.personId,
-        for (final person in school.classmates)
-          if (saved[_friendKey(school, person.id)] == true) person.id,
       };
       _ucInterestBySchool[school.id] = saved[_ucInterestKey(school)] == true;
       _completedBySchool[school.id] = {
@@ -229,9 +225,15 @@ class _CompassAppState extends State<CompassApp> {
         account: account,
         saved: _stored[key],
         write: (value) async {
-          await widget.preferences.setString(key, value);
-          _stored[key] = value;
-          _remote?.onCommunityWrite(value);
+          final cached = compactSharedGalleryCache(value);
+          await widget.preferences.setString(key, cached);
+          _stored[key] = cached;
+          final remote = _remote;
+          if (remote != null &&
+              remote.uid == account.uid &&
+              remote.school.id == school.id) {
+            remote.onCommunityWrite(value);
+          }
         },
       ),
     );
@@ -263,10 +265,12 @@ class _CompassAppState extends State<CompassApp> {
 
   Future<void> _enterSchool(DemoSchool school, LocalAccount account) async {
     await migrateAccountCalendar(widget.preferences, _stored, school, account);
-    _calendarsByAccount[accountCalendarKey(school, account)] =
-        ImportedSchoolCalendar.fromStorage(
-          _stored[accountCalendarKey(school, account)],
-        );
+    _calendarsByAccount[accountCalendarKey(
+      school,
+      account,
+    )] = ImportedSchoolCalendar.fromStorage(
+      _stored[accountCalendarKey(school, account)],
+    );
     await widget.preferences.setString(
       'compass.preview.${school.id}.session',
       account.sessionKey,
@@ -298,7 +302,7 @@ class _CompassAppState extends State<CompassApp> {
       school: school,
       gateway: _gateway!,
       readState: () => _stateFor(school, account),
-      applyState: (state) => _applyState(school, state),
+      applyState: (state) => _applyState(school, account, state),
       notice: _syncNotice,
     );
     _remote = remote;
@@ -306,11 +310,9 @@ class _CompassAppState extends State<CompassApp> {
   }
 
   UserSchoolState _stateFor(DemoSchool school, LocalAccount account) {
-    final preferences =
-        _preferencesBySchool[school.id] ?? StudentPreferences();
+    final preferences = _preferencesBySchool[school.id] ?? StudentPreferences();
     final community = _communities[communityStoreKey(school, account)];
-    final friends = (_friendIdsBySchool[school.id] ?? const <String>{}).toList()
-      ..sort();
+    final friends = _friendsFor(school, account).toList()..sort();
     return UserSchoolState(
       interests: preferences.sortedInterests,
       meetupTime: preferences.meetupTime.name,
@@ -329,7 +331,11 @@ class _CompassAppState extends State<CompassApp> {
     );
   }
 
-  Future<void> _applyState(DemoSchool school, UserSchoolState state) async {
+  Future<void> _applyState(
+    DemoSchool school,
+    LocalAccount account,
+    UserSchoolState state,
+  ) async {
     final preferences = StudentPreferences(
       interests: state.interests,
       meetupTime: MeetupTime.values.firstWhere(
@@ -341,18 +347,9 @@ class _CompassAppState extends State<CompassApp> {
       studentPreferencesKey(school),
       preferences.toStorage(),
     );
-    final friends = {
-      for (final chat in school.conversations) chat.personId,
-      ...state.friends,
-    };
-    final previousFriends = _friendIdsBySchool[school.id] ?? {};
-    for (final id in previousFriends.difference(friends)) {
-      if (school.conversations.any((chat) => chat.personId == id)) continue;
-      await widget.preferences.remove(_friendKey(school, id));
-    }
-    for (final id in state.friends) {
-      await widget.preferences.setBool(_friendKey(school, id), true);
-    }
+    final friends = _rosterFriends(school, state.friends)
+      ..addAll(_friendsFor(school, account));
+    await _saveFriends(school, account, friends);
     final previousRead = _readIdsBySchool[school.id] ?? {};
     final nextRead = state.guideProgress.toSet();
     for (final id in previousRead.difference(nextRead)) {
@@ -374,7 +371,6 @@ class _CompassAppState extends State<CompassApp> {
       );
     }
     _preferencesBySchool[school.id] = preferences;
-    _friendIdsBySchool[school.id] = friends;
     _readIdsBySchool[school.id] = nextRead;
     _completedBySchool[school.id] = Map<String, int>.from(
       state.requirementProgress,
@@ -448,10 +444,63 @@ class _CompassAppState extends State<CompassApp> {
     });
   }
 
-  Future<void> _addFriend(DemoSchool school, String id) async {
-    final friendIds = _friendIdsBySchool[school.id]!;
-    if (friendIds.contains(id)) return;
-    await _setFlag(_friendKey(school, id), true, () => friendIds.add(id));
+  Set<String> _rosterFriends(DemoSchool school, Iterable<String> savedIds) => {
+    for (final chat in school.conversations) chat.personId,
+    for (final person in school.classmates)
+      if (savedIds.contains(person.id)) person.id,
+  };
+
+  Set<String> _friendsFor(DemoSchool school, LocalAccount account) {
+    final key = _friendKey(school, account);
+    return _friendIdsByAccount.putIfAbsent(key, () {
+      final saved = _stored[key];
+      return _rosterFriends(
+        school,
+        saved is List ? saved.whereType<String>() : const [],
+      );
+    });
+  }
+
+  Future<void> _saveFriends(
+    DemoSchool school,
+    LocalAccount account,
+    Set<String> friends,
+  ) async {
+    final key = _friendKey(school, account);
+    final ids = friends.toList()..sort();
+    final current = _friendsFor(school, account);
+    await widget.preferences.setStringList(key, ids);
+    _stored[key] = ids;
+    current
+      ..clear()
+      ..addAll(ids);
+  }
+
+  Future<void> _addFriend(
+    DemoSchool school,
+    LocalAccount account,
+    String id,
+  ) async {
+    final friends = _friendsFor(school, account);
+    if (friends.contains(id) || !school.classmates.any((p) => p.id == id)) {
+      return;
+    }
+    final key = _friendKey(school, account);
+    if (!_pendingWrites.add(key)) {
+      throw StateError('Friend list is being saved.');
+    }
+    try {
+      await _saveFriends(school, account, {...friends, id});
+      if (mounted) setState(() {});
+      final remote = _remote;
+      if (remote != null &&
+          remote.uid == account.uid &&
+          remote.school.id == school.id) {
+        remote.schedulePush();
+      }
+    } finally {
+      _pendingWrites.remove(key);
+    }
   }
 
   Future<void> _setUcInterest(DemoSchool school, bool value) {
@@ -549,42 +598,46 @@ class _CompassAppState extends State<CompassApp> {
     home: _restoring
         ? const Scaffold(body: Center(child: CircularProgressIndicator()))
         : Builder(
-      builder: (context) {
-        final school = _school;
-        final account = _account;
-        if (school == null || account == null) {
-          return CompassWelcome(onFindSchool: () => _chooseSchool(context));
-        }
-        return CompassScope(
-          remote: _remote,
-          child: PreviewShell(
-          key: ValueKey(school.id),
-          school: school,
-          onSwitchSchool: () => _chooseSchool(context),
-          themeMode: _themeMode,
-          onChangeTheme: _setTheme,
-          onLogout: _logout,
-          community: _community(school, account),
-          accountEmail: account.email,
-          localPreferences: widget.preferences,
-          initialSaved: _stored,
-          cultureReadIds: _readIdsBySchool[school.id]!,
-          onToggleCultureRead: (id) => _toggleCultureRead(school, id),
-          friendIds: _friendIdsBySchool[school.id]!,
-          onAddFriend: (id) => _addFriend(school, id),
-          preferences: _preferencesBySchool[school.id]!,
-          onSavePreferences: (next) => _savePreferences(school, next),
-          calendar: _calendarsByAccount[accountCalendarKey(school, account)],
-          onSaveCalendar: (next) => _saveCalendar(school, account, next),
-          ucInterest: _ucInterestBySchool[school.id] ?? false,
-          onUcInterestChanged: (value) => _setUcInterest(school, value),
-          completedByRequirement: _completedBySchool[school.id]!,
-          onAdjustRequirementCompleted: (requirement, next) =>
-              _setRequirementCompleted(school, requirement, next),
+            builder: (context) {
+              final school = _school;
+              final account = _account;
+              if (school == null || account == null) {
+                return CompassWelcome(
+                  onFindSchool: () => _chooseSchool(context),
+                );
+              }
+              return CompassScope(
+                remote: _remote,
+                child: PreviewShell(
+                  key: ValueKey(communityStoreKey(school, account)),
+                  school: school,
+                  onSwitchSchool: () => _chooseSchool(context),
+                  themeMode: _themeMode,
+                  onChangeTheme: _setTheme,
+                  onLogout: _logout,
+                  community: _community(school, account),
+                  accountEmail: account.email,
+                  localPreferences: widget.preferences,
+                  initialSaved: _stored,
+                  cultureReadIds: _readIdsBySchool[school.id]!,
+                  onToggleCultureRead: (id) => _toggleCultureRead(school, id),
+                  friendIds: _friendsFor(school, account),
+                  onAddFriend: (id) => _addFriend(school, account, id),
+                  preferences: _preferencesBySchool[school.id]!,
+                  onSavePreferences: (next) => _savePreferences(school, next),
+                  calendar:
+                      _calendarsByAccount[accountCalendarKey(school, account)],
+                  onSaveCalendar: (next) =>
+                      _saveCalendar(school, account, next),
+                  ucInterest: _ucInterestBySchool[school.id] ?? false,
+                  onUcInterestChanged: (value) => _setUcInterest(school, value),
+                  completedByRequirement: _completedBySchool[school.id]!,
+                  onAdjustRequirementCompleted: (requirement, next) =>
+                      _setRequirementCompleted(school, requirement, next),
+                ),
+              );
+            },
           ),
-        );
-      },
-    ),
   );
 }
 

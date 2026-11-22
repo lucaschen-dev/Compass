@@ -5,20 +5,22 @@ Compass is a Flutter school community demo for Alderline and Cedarbrook. The hos
 ## Experience
 
 - A minimal Compass welcome screen, a centered **Find Your School** button, and a searchable alphabetical school list.
-- School-specific demo login with a fixed email suffix. **First login** offers local demo account creation, password setup, and full-name/grade onboarding. Passwords are stored as salted PBKDF2-SHA256 hashes, never plaintext. Sessions survive refresh.
+- Firebase Auth supports **Continue with Google** and school-specific email/password sign-in. New accounts choose a demo school and complete name and grade onboarding. Sessions survive refresh.
 - A school arrival animation fades in Compass and the school mark, then moves both into the Home header. The same brand elements remain mounted in the header, with stable type and color throughout the movement. Reduced-motion preferences are respected.
 - Four destinations: **Home**, **Guide**, **Chat**, and **Courses**. Desktop navigation highlights the entire icon-and-label row. The personal center is at the upper left. Appearance settings live inside the personal center.
 - Home carries Latest and For you feeds, six post categories, category/subtag filters, keyword search, topic recommendations, comments, likes, saved posts, anonymous posts, targeted questions, priorities, gallery posts, and composer drafts. For example, follow **Clubs → Badminton** to recommend badminton posts. Existing interest/time preferences still recommend sample peers, clubs, and events.
+- Home includes a **First week** launcher for the calendar, adviser and classroom directory, clubs, and sample classmates.
+- **Campus photos** groups Photo Gallery posts by date. Example albums show how Student Council and Photography Club could use the gallery. Demo school accounts can share up to four compressed photos per post with their school. This feature uses the existing shared posts collection.
 - A centered editable profile photo, full name, grade, bio, Posts/Saved/About sections, and settings.
 - Guide separates **Dress code**, **Grade**, **Faculty & classrooms**, **Campus life**, and **Course catalog**. Guide reading progress and course search remain available.
-- Chat includes direct/group conversations, search, unread/group/archive filters, drafts, quoted replies, editing, reactions, photo attachments, copy, delete-for-me, two-minute unsend, mute, pin, archive, and leaving/blocking a conversation. Messages and photos are local demo data; they are not delivered to other people. No calls, push delivery, or shared realtime messaging service is configured.
+- Chat includes **Add friend** with a searchable school demo roster, direct and group conversations, swipe-to-reply, message actions, reactions, drafts, local photo attachments, and block controls. Profile → Settings → Privacy shows blocked demo chats and lets users unblock them. Each signed-in account has its own friend list and Firebase demo chat backup. Messages in demo conversations do not reach other people, and backups do not use end-to-end encryption.
 - Courses provides **Month**, **Week**, and **Day** views, day agendas, calendar details, local ICS import, and folded **Graduation Requirements**. The existing manual requirement calculations are preserved.
 
 ## Email service status
 
-No email/identity delivery provider has been configured. **Send setup email** and **Send reset email** explicitly report that no email was sent. The local demo account option is labeled as such and does not verify school membership. The two fictional schools use reserved `alderline.example` and `cedarbrook.example` suffixes; users cannot edit them.
+Firebase Auth manages sign-in. **Send setup email** and **Send reset email** report that email delivery is unavailable. The two fictional schools use fixed `alderline.example` and `cedarbrook.example` suffixes for email/password. Google accounts can choose a fictional school during onboarding.
 
-Real school access requires an identity provider, verified school-domain configuration, actual setup/recovery email delivery, and server-enforced membership. The local demo login must not be treated as production authentication.
+A real school rollout requires verified membership, server-managed publisher roles, and a process for handling reported content and photos.
 
 ## Calendar subscriptions
 
@@ -34,7 +36,7 @@ Calendar events do not automatically change requirement completion. Event-to-cou
 
 ## Data separation
 
-Storage follows `compass.preview.<school-id>...`. Existing school guide, friend, requirement, preference, and calendar keys are preserved. New profile/post/chat/topic/calendar data is additionally scoped to each demo account. A pre-login calendar is migrated to the first local account only; resetting it does not restore legacy data. Appearance is an app preference. Local storage belongs to the browser and origin; it does not transfer automatically between localhost, the hosted Site, browsers, or devices.
+Storage follows `compass.preview.<school-id>...`. Guide, requirement and preference settings use school-scoped device keys. Friends, private calendar subscriptions and chat caches use account-scoped keys. Firebase stores private account state separately from school-visible posts. Older device-wide friend keys have no recorded owner. Existing per-account Firebase friend lists restore on sign-in. A pre-login calendar is migrated to the first local account only; resetting it does not restore legacy data. Appearance is an app preference. Local storage belongs to the browser and origin; it does not transfer automatically between localhost, the hosted Site, browsers, or devices.
 
 ## Develop
 

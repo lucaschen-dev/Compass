@@ -33,6 +33,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/compass-icon.png
+    - assets/campus_photos/
   fonts:
     - family: Inter
       fonts:

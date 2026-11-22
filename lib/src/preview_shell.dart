@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_ui.dart';
+import 'activity_pages.dart';
 import 'community_feed.dart';
 import 'community_models.dart';
 import 'community_profile.dart';
@@ -114,7 +115,8 @@ class _PreviewShellState extends State<PreviewShell>
   void _onSyncNotice() {
     final message = _remote?.notice.value;
     if (message == null || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _select(_Destination destination) {
@@ -141,6 +143,7 @@ class _PreviewShellState extends State<PreviewShell>
         onChangeTheme: widget.onChangeTheme,
         onLogout: widget.onLogout,
         onSwitchSchool: widget.onSwitchSchool,
+        cloudBacked: CompassScope.maybeOf(context) != null,
       ),
     ),
   );
@@ -149,6 +152,7 @@ class _PreviewShellState extends State<PreviewShell>
     listenable: widget.community,
     builder: (context, _) {
       final colors = Theme.of(context).colorScheme;
+      final remote = CompassScope.maybeOf(context);
       final page = switch (_selected) {
         _Destination.home => CommunityFeed(
           community: widget.community,
@@ -156,6 +160,34 @@ class _PreviewShellState extends State<PreviewShell>
           onSavePreferences: widget.onSavePreferences,
           friendIds: widget.friendIds,
           onAddFriend: widget.onAddFriend,
+          onRefreshPhotos: remote == null
+              ? null
+              : () => remote.refreshPosts(force: true),
+          publishGalleryPost: remote?.publishGalleryPost,
+          newcomerSection: _FirstWeek(
+            onCalendar: () => _select(_Destination.courses),
+            onAdviser: () => openFacultyDirectory(
+              context,
+              school: widget.school,
+              readIds: widget.cultureReadIds,
+              onToggleRead: widget.onToggleCultureRead,
+            ),
+            onClubs: () => openActivityDirectory(
+              context,
+              school: widget.school,
+              community: widget.community,
+              friendIds: widget.friendIds,
+              onAddFriend: widget.onAddFriend,
+              clubs: true,
+            ),
+            onClassmates: () => openSchoolFriendDirectory(
+              context,
+              school: widget.school,
+              friendIds: widget.friendIds,
+              onAddFriend: widget.onAddFriend,
+              isBlocked: (id) => isBlockedClassmate(widget.community, id),
+            ),
+          ),
         ),
         _Destination.guide => CulturePage(
           school: widget.school,
@@ -313,6 +345,68 @@ class _PreviewShellState extends State<PreviewShell>
       );
     },
   );
+}
+
+class _FirstWeek extends StatelessWidget {
+  const _FirstWeek({
+    required this.onCalendar,
+    required this.onAdviser,
+    required this.onClubs,
+    required this.onClassmates,
+  });
+
+  final VoidCallback onCalendar, onAdviser, onClubs, onClassmates;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Material(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: ExpansionTile(
+          key: const PageStorageKey('first-week'),
+          shape: const Border(),
+          collapsedShape: const Border(),
+          leading: const Icon(Icons.explore_outlined),
+          title: Text('First week', style: theme.textTheme.titleMedium),
+          childrenPadding: const EdgeInsets.only(bottom: 8),
+          children: [
+            for (final action in [
+              (
+                icon: Icons.event_outlined,
+                label: 'Check the school calendar',
+                open: onCalendar,
+              ),
+              (
+                icon: Icons.door_front_door_outlined,
+                label: 'Find an adviser or classroom',
+                open: onAdviser,
+              ),
+              (
+                icon: Icons.groups_outlined,
+                label: 'Find a club',
+                open: onClubs,
+              ),
+              (
+                icon: Icons.person_add_alt_outlined,
+                label: 'Meet sample classmates',
+                open: onClassmates,
+              ),
+            ])
+              ListTile(
+                leading: Icon(action.icon, size: 20),
+                title: Text(action.label),
+                trailing: const Icon(Icons.chevron_right, size: 18),
+                onTap: action.open,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _DesktopNavigation extends StatelessWidget {

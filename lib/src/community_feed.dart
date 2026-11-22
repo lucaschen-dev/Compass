@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 
 import 'activity_pages.dart';
 import 'app_ui.dart';
+import 'campus_photo_media.dart';
+import 'campus_photos_page.dart';
 import 'community_models.dart';
 import 'for_you_page.dart';
 import 'recommendations.dart';
@@ -17,12 +19,18 @@ class CommunityFeed extends StatefulWidget {
     required this.onSavePreferences,
     required this.friendIds,
     required this.onAddFriend,
+    this.newcomerSection,
+    this.onRefreshPhotos,
+    this.publishGalleryPost,
   });
   final CommunityController community;
   final StudentPreferences preferences;
   final Future<void> Function(StudentPreferences) onSavePreferences;
   final Set<String> friendIds;
   final Future<void> Function(String) onAddFriend;
+  final Widget? newcomerSection;
+  final Future<void> Function()? onRefreshPhotos;
+  final Future<void> Function(CommunityPost)? publishGalleryPost;
   @override
   State<CommunityFeed> createState() => _CommunityFeedState();
 }
@@ -55,6 +63,22 @@ class _CommunityFeedState extends State<CommunityFeed> {
     useSafeArea: true,
     builder: (context) => _TopicsEditor(c: c),
   );
+  Future<void> _openCampusPhotos() => Navigator.push<void>(
+    context,
+    MaterialPageRoute(
+      builder: (_) => CampusPhotosPage(
+        community: c,
+        onRefresh: widget.onRefreshPhotos,
+        onCompose: (context) => openPostComposer(
+          context,
+          c,
+          photoOnly: true,
+          publishGalleryPost: widget.publishGalleryPost,
+        ),
+      ),
+    ),
+  );
+
   int _score(CommunityPost p) =>
       (c.followedTags.contains(p.category.name) ? 1 : 0) +
       (c.followedTags.contains('${p.category.name}/${p.subtag}') ? 3 : 0) +
@@ -95,6 +119,13 @@ class _CommunityFeedState extends State<CommunityFeed> {
       children: [
         ContentColumn(
           children: [
+            if (!_forYou &&
+                _category == null &&
+                _query.isEmpty &&
+                widget.newcomerSection != null) ...[
+              widget.newcomerSection!,
+              const SizedBox(height: 16),
+            ],
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -230,6 +261,18 @@ class _CommunityFeedState extends State<CommunityFeed> {
               ],
               const SizedBox(height: 12),
             ],
+            if ((!_forYou && _category == null && _query.isEmpty) ||
+                _category == PostCategory.gallery) ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Campus photos'),
+                subtitle: const Text('Browse photo posts by day'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: _openCampusPhotos,
+              ),
+              const SizedBox(height: 8),
+            ],
             if (_forYou) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -330,7 +373,9 @@ class _CommunityFeedState extends State<CommunityFeed> {
               if (recommendations.clubs.isEmpty)
                 const Padding(
                   padding: EdgeInsets.only(bottom: 12),
-                  child: Text('No clubs match. Try another interest or meetup time.'),
+                  child: Text(
+                    'No clubs match. Try another interest or meetup time.',
+                  ),
                 )
               else
                 for (final m in recommendations.clubs)
@@ -374,7 +419,9 @@ class _CommunityFeedState extends State<CommunityFeed> {
                 ],
               ),
               if (recommendations.events.isEmpty)
-                const Text('No events match. Try another interest or meetup time.')
+                const Text(
+                  'No events match. Try another interest or meetup time.',
+                )
               else
                 for (final m in recommendations.events)
                   ListTile(
@@ -402,7 +449,11 @@ class _CommunityFeedState extends State<CommunityFeed> {
           bottom: 20,
           child: FloatingActionButton(
             tooltip: 'Create a post',
-            onPressed: () => openPostComposer(context, c),
+            onPressed: () => openPostComposer(
+              context,
+              c,
+              publishGalleryPost: widget.publishGalleryPost,
+            ),
             child: const Icon(Icons.add_rounded),
           ),
         ),
@@ -537,7 +588,9 @@ class PostTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = community;
-    final name = post.anonymous
+    final name = post.category == PostCategory.gallery
+        ? galleryPostAttribution(c, post)
+        : post.anonymous
         ? 'Anonymous student'
         : c.authorName(post.authorId);
     return Padding(
@@ -690,24 +743,7 @@ class PostTile extends StatelessWidget {
                 ),
                 if (post.photos.isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  SizedBox(
-                    height: 220,
-                    child: PageView(
-                      children: [
-                        for (final photo in post.photos)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.memory(
-                              base64Decode(photo),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) => const Center(
-                                child: Icon(Icons.broken_image_outlined),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+                  GalleryPostPhotos(title: post.title, photos: post.photos),
                 ],
                 if (post.askedPerson != null)
                   Padding(
@@ -900,45 +936,106 @@ class _PostDetailState extends State<PostDetail> {
   );
 }
 
-Future<void> openPostComposer(BuildContext context, CommunityController c) =>
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      constraints: const BoxConstraints(maxWidth: 680),
-      builder: (_) => _PostComposer(c: c),
-    );
+Future<void> openPostComposer(
+  BuildContext context,
+  CommunityController c, {
+  bool photoOnly = false,
+  Future<void> Function(CommunityPost)? publishGalleryPost,
+}) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  showDragHandle: true,
+  constraints: const BoxConstraints(maxWidth: 680),
+  builder: (_) => _PostComposer(
+    c: c,
+    photoOnly: photoOnly,
+    publishGalleryPost: publishGalleryPost,
+  ),
+);
 
 class _PostComposer extends StatefulWidget {
-  const _PostComposer({required this.c});
+  const _PostComposer({
+    required this.c,
+    required this.photoOnly,
+    required this.publishGalleryPost,
+  });
   final CommunityController c;
+  final bool photoOnly;
+  final Future<void> Function(CommunityPost)? publishGalleryPost;
   @override
   State<_PostComposer> createState() => _PostComposerState();
 }
 
 class _PostComposerState extends State<_PostComposer> {
+  static const _photoDraftKey = 'photoDraft';
+  late final Map<String, dynamic> _initialDraft = widget.photoOnly
+      ? Map<String, dynamic>.from(
+          widget.c.composerDraft[_photoDraftKey] as Map? ?? {},
+        )
+      : widget.c.composerDraft;
   late final _title = TextEditingController(
-        text: widget.c.composerDraft['title'] as String? ?? '',
-      ),
-      _body = TextEditingController(
-        text: widget.c.composerDraft['body'] as String? ?? '',
-      );
-  late PostCategory _category =
-      PostCategory.values
-          .where((c) => c.name == widget.c.composerDraft['category'])
-          .firstOrNull ??
-      PostCategory.question;
-  late String _subtag =
-      widget.c.composerDraft['subtag'] as String? ?? _category.subtags.first;
-  late String _priority =
-      widget.c.composerDraft['priority'] as String? ?? 'Normal';
-  late String? _asked = widget.c.composerDraft['asked'] as String?;
-  late bool _anonymous = widget.c.composerDraft['anonymous'] == true;
-  bool _busy = false, _posted = false;
-  late List<String> _photos = List<String>.from(
-    widget.c.composerDraft['photos'] as List? ?? [],
+    text: _initialDraft['title'] as String? ?? '',
   );
+  late final _body = TextEditingController(
+    text: _initialDraft['body'] as String? ?? '',
+  );
+  late PostCategory _category = widget.photoOnly
+      ? PostCategory.gallery
+      : PostCategory.values
+                .where((category) => category.name == _initialDraft['category'])
+                .firstOrNull ??
+            PostCategory.question;
+  late String _subtag = _category.subtags.contains(_initialDraft['subtag'])
+      ? _initialDraft['subtag'] as String
+      : _category.subtags.first;
+  late String _priority = _initialDraft['priority'] as String? ?? 'Normal';
+  late String? _asked = _initialDraft['asked'] as String?;
+  late String? _postId = _initialDraft['postId'] as String?;
+  late bool _anonymous = _initialDraft['anonymous'] == true;
+  bool _busy = false, _posted = false, _picking = false;
+  late List<String> _photos = List<String>.from(
+    _initialDraft['photos'] as List? ?? [],
+  );
+
+  void _replaceDraft(Map<String, dynamic> next) {
+    final current = widget.c.composerDraft;
+    widget.c.composerDraft = widget.photoOnly
+        ? {...current, if (next.isNotEmpty) _photoDraftKey: next}
+        : {
+            ...next,
+            if (current.containsKey(_photoDraftKey))
+              _photoDraftKey: current[_photoDraftKey],
+          };
+    if (widget.photoOnly && next.isEmpty) {
+      widget.c.composerDraft.remove(_photoDraftKey);
+    }
+  }
+
+  Future<void> _pickPhotos() async {
+    setState(() => _picking = true);
+    try {
+      final picked = await chooseGalleryPhotos(
+        galleryPhotoLimit - _photos.length,
+      );
+      if (mounted && _category == PostCategory.gallery && picked.isNotEmpty) {
+        setState(() => _photos.addAll(picked));
+        _scheduleDraft();
+      }
+    } catch (error) {
+      if (mounted) {
+        showAppError(
+          context,
+          error is ArgumentError
+              ? error.message.toString()
+              : 'Could not read the photos.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
+  }
+
   Timer? _draft;
   @override
   void initState() {
@@ -966,8 +1063,9 @@ class _PostComposerState extends State<_PostComposer> {
       'asked': _asked,
       'anonymous': _anonymous,
       'photos': List<String>.of(_photos),
+      if (_postId != null) 'postId': _postId,
     };
-    return widget.c.change(() => widget.c.composerDraft = draft);
+    return widget.c.change(() => _replaceDraft(draft));
   }
 
   @override
@@ -992,27 +1090,56 @@ class _PostComposerState extends State<_PostComposer> {
       );
       return;
     }
+    final publish = _category == PostCategory.gallery
+        ? widget.publishGalleryPost
+        : null;
+    if (publish != null &&
+        (_photos.length > galleryPhotoLimit ||
+            !_photos.every(isSharedGalleryPhoto))) {
+      showAppError(
+        context,
+        'Reselect photos from this older draft to share up to $galleryPhotoLimit photos.',
+      );
+      return;
+    }
     setState(() => _busy = true);
     _draft?.cancel();
+    final post = CommunityPost(
+      id: _postId ??= widget.c.newId(),
+      authorId: 'me',
+      title: title.isEmpty ? 'Photo Gallery' : title,
+      body: body,
+      category: _category,
+      subtag: _subtag,
+      at: DateTime.now(),
+      anonymous: _anonymous,
+      priority: _category == PostCategory.gallery ? 'Normal' : _priority,
+      askedPerson: _category == PostCategory.question ? _asked : null,
+      photos: List.of(_photos),
+      sharedGalleryMedia: publish != null,
+    );
+    if (publish != null) {
+      try {
+        await _saveDraft();
+        await publish(post);
+      } catch (_) {
+        if (mounted) {
+          showAppError(
+            context,
+            'Could not confirm publication. Your draft is still here. Try again.',
+          );
+          setState(() => _busy = false);
+        }
+        return;
+      }
+    }
     try {
       await widget.c.change(() {
         widget.c.posts = [
-          CommunityPost(
-            id: widget.c.newId(),
-            authorId: 'me',
-            title: title.isEmpty ? 'Photo Gallery' : title,
-            body: body,
-            category: _category,
-            subtag: _subtag,
-            at: DateTime.now(),
-            anonymous: _anonymous,
-            priority: _category == PostCategory.gallery ? 'Normal' : _priority,
-            askedPerson: _asked,
-            photos: List.of(_photos),
-          ),
-          ...widget.c.posts,
+          post,
+          ...widget.c.posts.where((previous) => previous.id != post.id),
         ];
-        widget.c.composerDraft = {};
+        _replaceDraft({});
       });
       _posted = true;
       if (mounted) Navigator.pop(context);
@@ -1020,7 +1147,9 @@ class _PostComposerState extends State<_PostComposer> {
       if (mounted) {
         showAppError(
           context,
-          'Could not save the post. Try fewer or smaller photos.',
+          publish == null
+              ? 'Could not save the post. Try fewer or smaller photos.'
+              : 'Photos were shared, but this device could not update its copy.',
         );
         setState(() => _busy = false);
       }
@@ -1041,24 +1170,28 @@ class _PostComposerState extends State<_PostComposer> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('New post', style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 24),
-            DropdownButtonFormField<PostCategory>(
-              initialValue: _category,
-              decoration: const InputDecoration(labelText: 'Category'),
-              items: [
-                for (final c in PostCategory.values)
-                  DropdownMenuItem(value: c, child: Text(c.label)),
-              ],
-              onChanged: _busy
-                  ? null
-                  : (v) => setState(() {
-                      _category = v!;
-                      _subtag = v.subtags.first;
-                      if (v != PostCategory.gallery) _photos = [];
-                      _scheduleDraft();
-                    }),
+            Text(
+              widget.photoOnly ? 'Post photos' : 'New post',
+              style: Theme.of(context).textTheme.headlineMedium,
             ),
+            const SizedBox(height: 24),
+            if (!widget.photoOnly)
+              DropdownButtonFormField<PostCategory>(
+                initialValue: _category,
+                decoration: const InputDecoration(labelText: 'Category'),
+                items: [
+                  for (final c in PostCategory.values)
+                    DropdownMenuItem(value: c, child: Text(c.label)),
+                ],
+                onChanged: _busy || _picking
+                    ? null
+                    : (v) => setState(() {
+                        _category = v!;
+                        _subtag = v.subtags.first;
+                        if (v != PostCategory.gallery) _photos = [];
+                        _scheduleDraft();
+                      }),
+              ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               key: ValueKey(_category),
@@ -1068,12 +1201,13 @@ class _PostComposerState extends State<_PostComposer> {
                 for (final tag in _category.subtags)
                   DropdownMenuItem(value: tag, child: Text(tag)),
               ],
-              onChanged: (v) => setState(() => _subtag = v!),
+              onChanged: _busy ? null : (v) => setState(() => _subtag = v!),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _title,
               maxLength: 140,
+              readOnly: _busy,
               decoration: const InputDecoration(labelText: 'Title'),
             ),
             const SizedBox(height: 12),
@@ -1082,6 +1216,7 @@ class _PostComposerState extends State<_PostComposer> {
               minLines: 4,
               maxLines: 10,
               maxLength: 5000,
+              readOnly: _busy,
               decoration: InputDecoration(
                 labelText: _category == PostCategory.gallery
                     ? 'Caption'
@@ -1107,8 +1242,12 @@ class _PostComposerState extends State<_PostComposer> {
                           top: 0,
                           child: IconButton(
                             tooltip: 'Remove photo',
-                            onPressed: () =>
-                                setState(() => _photos.removeAt(i)),
+                            onPressed: _busy || _picking
+                                ? null
+                                : () {
+                                    setState(() => _photos.removeAt(i));
+                                    _scheduleDraft();
+                                  },
                             icon: const Icon(Icons.cancel),
                           ),
                         ),
@@ -1117,27 +1256,23 @@ class _PostComposerState extends State<_PostComposer> {
                 ],
               ),
               OutlinedButton.icon(
-                onPressed: _photos.length >= 20 || _busy
+                onPressed:
+                    _photos.length >= galleryPhotoLimit || _busy || _picking
                     ? null
-                    : () async {
-                        try {
-                          final photo = await choosePhoto();
-                          if (photo != null && mounted) {
-                            setState(() => _photos.add(photo));
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            showAppError(
-                              context,
-                              e is ArgumentError
-                                  ? e.message.toString()
-                                  : 'Could not read the photo.',
-                            );
-                          }
-                        }
-                      },
+                    : _pickPhotos,
                 icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: Text('Add photos (${_photos.length}/20)'),
+                label: Text(
+                  _picking
+                      ? 'Preparing photos…'
+                      : 'Add photos (${_photos.length}/$galleryPhotoLimit)',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.publishGalleryPost == null
+                    ? 'Photos are saved on this device.'
+                    : 'Signed-in members of ${shortSchoolName(widget.c.school)} can see these photos. Only share photos you have permission to post.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ] else ...[
               const SizedBox(height: 12),
@@ -1170,11 +1305,11 @@ class _PostComposerState extends State<_PostComposer> {
               contentPadding: EdgeInsets.zero,
               title: const Text('Post anonymously'),
               value: _anonymous,
-              onChanged: (v) => setState(() => _anonymous = v),
+              onChanged: _busy ? null : (v) => setState(() => _anonymous = v),
             ),
             const SizedBox(height: 18),
             FilledButton(
-              onPressed: _busy ? null : _post,
+              onPressed: _busy || _picking ? null : _post,
               child: Text(_busy ? 'Saving…' : 'Post'),
             ),
           ],
