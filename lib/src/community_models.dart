@@ -382,13 +382,9 @@ class CommunityController extends ChangeNotifier {
         posts = (j['posts'] as List)
             .map((p) => CommunityPost.fromJson(p as Map<String, dynamic>))
             .toList();
-        final cachedThreads = (j['threads'] as List)
+        threads = (j['threads'] as List)
             .map((t) => ChatThread.fromJson(t as Map<String, dynamic>))
             .toList();
-        final uid = account.uid;
-        threads = uid != null && j['version'] != _privateChatCacheVersion
-            ? _recoverPrivateChats(threads, cachedThreads, uid)
-            : cachedThreads;
         savedPosts = Set<String>.from(j['saved'] as List);
         likedPosts = Set<String>.from(j['liked'] as List);
         followedTags = Set<String>.from(j['tags'] as List);
