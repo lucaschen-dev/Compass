@@ -590,16 +590,13 @@ class PostTile extends StatelessWidget {
     final c = community;
     final name = post.category == PostCategory.gallery
         ? galleryPostAttribution(c, post)
-        : post.anonymous
-        ? 'Anonymous student'
-        : c.authorName(post.authorId);
+        : c.postAuthorName(post);
     return Padding(
-      padding: const EdgeInsets.only(top: 22),
+      padding: EdgeInsets.only(top: open ? 22 : 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               StudentAvatar(
                 name: name,
@@ -630,6 +627,7 @@ class PostTile extends StatelessWidget {
               ),
               PopupMenuButton<String>(
                 tooltip: 'Post actions',
+                padding: EdgeInsets.zero,
                 onSelected: (v) async {
                   if (v == 'anonymous') {
                     await appSave(
@@ -710,7 +708,7 @@ class PostTile extends StatelessWidget {
                   )
                 : null,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (post.important &&
                     (showPriority || post.priority == 'Urgent'))
@@ -760,6 +758,10 @@ class PostTile extends StatelessWidget {
           Row(
             children: [
               TextButton.icon(
+                style: TextButton.styleFrom(
+                  alignment: AlignmentDirectional.centerStart,
+                  padding: const EdgeInsetsDirectional.only(end: 12),
+                ),
                 onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute<void>(
@@ -781,8 +783,12 @@ class PostTile extends StatelessWidget {
                       : Icons.bookmark_border_rounded,
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 8),
               TextButton.icon(
+                style: TextButton.styleFrom(
+                  alignment: AlignmentDirectional.centerEnd,
+                  padding: const EdgeInsetsDirectional.only(start: 12),
+                ),
                 onPressed: () => appSave(context, () => c.toggleLiked(post.id)),
                 icon: Icon(
                   c.likedPosts.contains(post.id)
@@ -797,12 +803,15 @@ class PostTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const Divider(),
+          const Divider(height: 1),
         ],
       ),
     );
   }
 }
+
+const _postDetailWidth = 760.0;
+const _postDetailGutter = 24.0;
 
 class PostDetail extends StatefulWidget {
   const PostDetail({super.key, required this.community, required this.postId});
@@ -821,6 +830,63 @@ class _PostDetailState extends State<PostDetail> {
     super.dispose();
   }
 
+  Future<void> _sendComment(CommunityPost post) async {
+    final text = _reply.text.trim();
+    if (text.isEmpty || _busy) return;
+    final community = widget.community;
+    setState(() => _busy = true);
+    try {
+      await community.change(
+        () => community.posts = [
+          for (final entry in community.posts)
+            if (entry.id == post.id)
+              entry.copyWith(
+                replies: [
+                  ...entry.replies,
+                  PostReply(
+                    id: community.newId(),
+                    author: 'me',
+                    body: text,
+                    at: DateTime.now(),
+                  ),
+                ],
+              )
+            else
+              entry,
+        ],
+      );
+      if (mounted) _reply.clear();
+    } catch (_) {
+      if (mounted) showAppError(context, 'Could not save your comment.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _deleteComment(String postId, String commentId) async {
+    final confirmed = await confirmAction(
+      context,
+      title: 'Delete your comment?',
+      action: 'Delete',
+    );
+    if (!mounted || !confirmed) return;
+    final community = widget.community;
+    await appSave(
+      context,
+      () => community.change(
+        () => community.posts = [
+          for (final post in community.posts)
+            if (post.id == postId)
+              post.copyWith(
+                replies: post.replies.where((r) => r.id != commentId).toList(),
+              )
+            else
+              post,
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.community,
@@ -828,108 +894,82 @@ class _PostDetailState extends State<PostDetail> {
       final c = widget.community;
       final p = c.posts.where((p) => p.id == widget.postId).firstOrNull;
       return Scaffold(
-        appBar: AppBar(title: const Text('Post')),
-        body: p == null
-            ? const Center(child: Text('This post was deleted.'))
-            : ContentColumn(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          centerTitle: true,
+          excludeHeaderSemantics: true,
+          titleSpacing: 0,
+          title: SizedBox(
+            width: _postDetailWidth,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: _postDetailGutter,
+              ),
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  PostTile(community: c, post: p, open: false),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Comments',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  for (final r in p.replies)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(c.authorName(r.author)),
-                      subtitle: Text(r.body),
-                      trailing: r.author == 'me'
-                          ? IconButton(
-                              tooltip: 'Delete my comment',
-                              icon: const Icon(Icons.close, size: 18),
-                              onPressed: () async {
-                                if (await confirmAction(
-                                  context,
-                                  title: 'Delete your comment?',
-                                  action: 'Delete',
-                                )) {
-                                  if (context.mounted) {
-                                    await appSave(
-                                      context,
-                                      () => c.change(
-                                        () => c.posts = [
-                                          for (final entry in c.posts)
-                                            if (entry.id == p.id)
-                                              entry.copyWith(
-                                                replies: entry.replies
-                                                    .where((v) => v.id != r.id)
-                                                    .toList(),
-                                              )
-                                            else
-                                              entry,
-                                        ],
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
-                            )
-                          : null,
-                    ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _reply,
-                    minLines: 1,
-                    maxLines: 5,
-                    maxLength: 2000,
-                    decoration: const InputDecoration(
-                      hintText: 'Write a comment',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: _busy
-                        ? null
-                        : () async {
-                            final text = _reply.text.trim();
-                            if (text.isEmpty) return;
-                            setState(() => _busy = true);
-                            try {
-                              await c.change(
-                                () => c.posts = [
-                                  for (final entry in c.posts)
-                                    if (entry.id == p.id)
-                                      entry.copyWith(
-                                        replies: [
-                                          ...entry.replies,
-                                          PostReply(
-                                            id: c.newId(),
-                                            author: 'me',
-                                            body: text,
-                                            at: DateTime.now(),
-                                          ),
-                                        ],
-                                      )
-                                    else
-                                      entry,
-                                ],
-                              );
-                              _reply.clear();
-                            } catch (_) {
-                              if (context.mounted) {
-                                showAppError(
-                                  context,
-                                  'Could not save your comment.',
-                                );
-                              }
-                            } finally {
-                              if (mounted) setState(() => _busy = false);
-                            }
-                          },
-                    child: const Text('Comment'),
+                  Semantics(header: true, child: const Text('Post')),
+                  const Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: BackButton(),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+        body: p == null
+            ? const Center(child: Text('This post was deleted.'))
+            : SafeArea(
+                top: false,
+                child: ContentColumn(
+                  maxWidth: _postDetailWidth,
+                  padding: const EdgeInsets.fromLTRB(
+                    _postDetailGutter,
+                    20,
+                    _postDetailGutter,
+                    32,
+                  ),
+                  children: [
+                    PostTile(community: c, post: p, open: false),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Comments',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    for (final r in p.replies)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(c.replyAuthorName(r)),
+                        subtitle: Text(r.body),
+                        trailing: r.author == 'me'
+                            ? IconButton(
+                                tooltip: 'Delete my comment',
+                                icon: const Icon(Icons.close, size: 18),
+                                onPressed: () => _deleteComment(p.id, r.id),
+                              )
+                            : null,
+                      ),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: _reply,
+                      minLines: 1,
+                      maxLines: 5,
+                      maxLength: 2000,
+                      decoration: const InputDecoration(
+                        hintText: 'Write a comment',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: FilledButton(
+                        onPressed: _busy ? null : () => _sendComment(p),
+                        child: const Text('Comment'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
       );
     },

@@ -14,6 +14,7 @@ const {
 const {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   documentId,
   getDoc,
@@ -133,6 +134,50 @@ beforeEach(async () => {
 
 after(async () => {
   await environment?.cleanup();
+});
+
+test('posts keep validated school attribution and omit author names when anonymous', async () => {
+  const path = ['schools', school, 'posts', 'author-attribution'];
+  const post = doc(as(alice), ...path);
+  const named = { authorId: alice.uid, title: 'School update', anonymous: false };
+  await assertFails(setDoc(post, { ...named, authorName: teacher.name }));
+  await assertFails(setDoc(post, { ...named, anonymous: true, authorName: alice.name }));
+  await assertFails(setDoc(post, { ...named, anonymous: true, authorName: null }));
+  await assertSucceeds(setDoc(post, named));
+  await assertSucceeds(updateDoc(post, { authorName: alice.name }));
+
+  const peerPost = doc(as(peer), ...path);
+  assert.equal((await assertSucceeds(getDoc(peerPost))).data().authorName, alice.name);
+  await assertFails(getDoc(doc(as(outsider), ...path)));
+  await assertFails(getDoc(doc(as(peer), 'users', alice.uid)));
+  await assertFails(updateDoc(peerPost, { authorName: peer.name }));
+  await assertFails(updateDoc(post, { anonymous: true }));
+  await assertSucceeds(updateDoc(post, { anonymous: true, authorName: deleteField() }));
+  assert.equal((await assertSucceeds(getDoc(peerPost))).data().authorName, undefined);
+  await assertSucceeds(updateDoc(post, { anonymous: false, authorName: alice.name }));
+});
+
+test('existing replies can gain the authenticated replier name without sharing profiles', async () => {
+  const path = ['schools', school, 'posts', 'post-with-replies'];
+  const aliceDb = as(alice);
+  const teacherDb = as(teacher);
+  await assertSucceeds(setDoc(doc(aliceDb, ...path), {
+    authorId: alice.uid,
+    anonymous: true,
+  }));
+
+  const replyPath = [...path, 'replies', 'author-attribution'];
+  const reply = doc(teacherDb, ...replyPath);
+  const priorReply = { authorId: teacher.uid, author: 'me', body: 'Thanks!' };
+  await assertFails(setDoc(reply, { ...priorReply, authorName: alice.name }));
+  await assertSucceeds(setDoc(reply, priorReply));
+  await assertFails(updateDoc(reply, { authorName: alice.name }));
+  await assertSucceeds(updateDoc(reply, { authorName: teacher.name }));
+  const aliceReply = doc(aliceDb, ...replyPath);
+  assert.equal((await assertSucceeds(getDoc(aliceReply))).data().authorName, teacher.name);
+  await assertFails(updateDoc(aliceReply, { authorName: alice.name }));
+  await assertFails(getDoc(doc(as(outsider), ...replyPath)));
+  await assertFails(getDoc(doc(aliceDb, 'users', teacher.uid)));
 });
 
 test('directory publication is opt-in, names-only, and scoped to the school', async () => {

@@ -10,6 +10,68 @@ import 'package:flutter_test/flutter_test.dart';
 const uid = 'student-1';
 
 void main() {
+  test('another account sees verified names on posts and comments', () {
+    const viewer = 'student-2';
+    final at = DateTime.utc(2026, 11, 15);
+    final post = CommunityPost(
+      id: 'p1',
+      authorId: 'me',
+      title: 'Lab help',
+      body: 'Where is room 12?',
+      category: PostCategory.question,
+      subtag: 'Classes',
+      at: at,
+    );
+    final reply = PostReply(
+      id: 'r1',
+      author: 'me',
+      body: 'Second floor',
+      at: at,
+    );
+    final postPayload = remotePostJson(
+      post,
+      uid,
+      verifiedAuthorName: 'Alex Chen',
+    );
+    final replyPayload = remoteReplyJson(
+      reply,
+      uid,
+      verifiedAuthorName: 'Alex Chen',
+    );
+    final incoming = localPostFromRemote(postPayload, viewer, replies: [
+      localReplyFromRemote(replyPayload, viewer),
+    ]);
+    final merged = mergePosts(local: [], remote: [incoming], uid: viewer).single;
+    final cached = CommunityPost.fromJson(merged.toJson());
+    final controller = CommunityController(
+      school: demoSchools.first,
+      account: const LocalAccount(
+        email: 'reader@alderline.example',
+        name: 'Reader Name',
+        grade: 11,
+        uid: viewer,
+      ),
+      write: (_) async {},
+    );
+    addTearDown(controller.dispose);
+    expect(cached.authorId, uid);
+    expect(cached.replies.single.author, uid);
+    expect(controller.postAuthorName(cached), 'Alex Chen');
+    expect(controller.replyAuthorName(cached.replies.single), 'Alex Chen');
+
+    final hidden = cached.copyWith(anonymous: true);
+    expect(hidden.toJson(), isNot(contains('authorName')));
+    expect(
+      remotePostJson(hidden, uid, verifiedAuthorName: 'Alex Chen'),
+      isNot(contains('authorName')),
+    );
+    final staleNameOnAnonymous = localPostFromRemote(
+      {...postPayload, 'anonymous': true},
+      viewer,
+    );
+    expect(staleNameOnAnonymous.authorName, isNull);
+    expect(controller.postAuthorName(staleNameOnAnonymous), 'Anonymous student');
+  });
 
   test('remote post omits replies, secrets, and inline photos', () {
     final post = CommunityPost(

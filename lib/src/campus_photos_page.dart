@@ -10,8 +10,7 @@ String galleryPostAttribution(
   CommunityController community,
   CommunityPost post,
 ) {
-  if (post.anonymous) return 'Anonymous student';
-  final author = community.authorName(post.authorId);
+  final author = community.postAuthorName(post);
   return author == 'Student life' ? 'School member' : author;
 }
 

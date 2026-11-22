@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -115,11 +116,25 @@ class FirestoreGateway {
   Future<List<CommunityPost>> fetchPosts(String schoolId, String uid) async {
     final snap = await _posts(schoolId).get();
     final posts = <CommunityPost>[];
+    final unnamed = <DocumentReference<Map<String, dynamic>>>[];
     for (final doc in snap.docs) {
+      final data = doc.data();
       final replies = await doc.reference.collection('replies').get();
+      if (data['anonymous'] != true &&
+          data['authorId'] == uid &&
+          savedAuthorName(data) == null) {
+        unnamed.add(doc.reference);
+      }
+      for (final reply in replies.docs) {
+        final replyData = reply.data();
+        if (replyData['authorId'] == uid &&
+            savedAuthorName(replyData) == null) {
+          unnamed.add(reply.reference);
+        }
+      }
       posts.add(
         localPostFromRemote(
-          {...doc.data(), 'id': doc.id},
+          {...data, 'id': doc.id},
           uid,
           replies: [
             for (final reply in replies.docs)
@@ -128,18 +143,68 @@ class FirestoreGateway {
         ),
       );
     }
+    if (unnamed.isNotEmpty) {
+      unawaited(_backfillAuthorNames(schoolId, uid, unnamed));
+    }
     return posts;
   }
 
+  Future<String?> _verifiedAuthorName(String schoolId, String uid) async {
+    if (auth.currentUser?.uid != uid) return null;
+    try {
+      final data = (await _user(uid).get()).data();
+      final name = data?['name'];
+      if (auth.currentUser?.uid == uid &&
+          data?['schoolId'] == schoolId &&
+          name is String &&
+          name.trim().isNotEmpty) {
+        return name;
+      }
+    } on FirebaseException {
+      // Content still syncs without a name and can be repaired on refresh.
+    }
+    return null;
+  }
+
+  Future<void> _backfillAuthorNames(
+    String schoolId,
+    String uid,
+    List<DocumentReference<Map<String, dynamic>>> unnamed,
+  ) async {
+    final name = await _verifiedAuthorName(schoolId, uid);
+    if (name == null) return;
+    for (final doc in unnamed) {
+      if (auth.currentUser?.uid != uid) return;
+      try {
+        // Update only the name. Rules recheck authorship and anonymity if the
+        // post was edited, and update cannot recreate a deleted document.
+        await doc.update({'authorName': name});
+      } on FirebaseException {
+        // A later refresh can retry other legacy records.
+      }
+    }
+  }
+
   Future<void> applyDelta(String schoolId, CommunityDelta delta, String uid) async {
+    final profile = delta.profile;
+    if (profile != null && profile.name.trim().length >= 2) {
+      await saveProfile(uid: uid, name: profile.name.trim(), grade: profile.grade);
+    }
+    final authorName = delta.upsertReplies.isNotEmpty ||
+            delta.upsertPosts.any((post) => !post.anonymous)
+        ? await _verifiedAuthorName(schoolId, uid)
+        : null;
     for (final post in delta.upsertPosts) {
-      final payload = remotePostJson(post, uid);
+      final payload = remotePostJson(post, uid, verifiedAuthorName: authorName);
       if (containsForbiddenRemoteKeys(payload)) continue;
       final doc = _posts(schoolId).doc(post.id);
       if (post.sharedGalleryMedia && post.photos.isEmpty) {
         // Offline caches keep only metadata for shared photo posts.
         // Merge metadata edits so a cached post cannot clear server media.
-        await doc.set(payload, SetOptions(merge: true));
+        await doc.set({
+          ...payload,
+          if (post.anonymous) 'authorName': FieldValue.delete(),
+        }, SetOptions(merge: true));
       } else {
         await doc.set(payload);
       }
@@ -152,7 +217,11 @@ class FirestoreGateway {
       await _posts(schoolId).doc(id).delete();
     }
     for (final change in delta.upsertReplies) {
-      final payload = remoteReplyJson(change.reply, uid);
+      final payload = remoteReplyJson(
+        change.reply,
+        uid,
+        verifiedAuthorName: authorName,
+      );
       if (containsForbiddenRemoteKeys(payload)) continue;
       final post = _posts(schoolId).doc(change.postId);
       // Sample posts are local and do not have a Firestore parent.
@@ -179,10 +248,6 @@ class FirestoreGateway {
           .collection('messages')
           .doc(change.message.id)
           .set(payload);
-    }
-    final profile = delta.profile;
-    if (profile != null && profile.name.trim().length >= 2) {
-      await saveProfile(uid: uid, name: profile.name.trim(), grade: profile.grade);
     }
   }
 

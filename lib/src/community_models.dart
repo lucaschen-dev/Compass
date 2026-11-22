@@ -63,20 +63,24 @@ class PostReply {
     required this.author,
     required this.body,
     required this.at,
+    this.authorName,
   });
   final String id;
   final String author;
+  final String? authorName;
   final String body;
   final DateTime at;
   Map<String, Object> toJson() => {
     'id': id,
     'author': author,
+    'authorName': ?authorName,
     'body': body,
     'at': at.toIso8601String(),
   };
   factory PostReply.fromJson(Map<String, dynamic> j) => PostReply(
     id: j['id'] as String,
     author: j['author'] as String,
+    authorName: j['authorName'] as String?,
     body: j['body'] as String,
     at: DateTime.parse(j['at'] as String),
   );
@@ -91,6 +95,7 @@ class CommunityPost {
     required this.category,
     required this.subtag,
     required this.at,
+    this.authorName,
     this.anonymous = false,
     this.priority = 'Normal',
     this.askedPerson,
@@ -103,7 +108,7 @@ class CommunityPost {
   final PostCategory category;
   final DateTime at;
   final bool anonymous;
-  final String? askedPerson;
+  final String? askedPerson, authorName;
   final List<String> photos;
   final bool sharedGalleryMedia;
   final List<PostReply> replies;
@@ -122,6 +127,7 @@ class CommunityPost {
         subtag: subtag,
         at: at,
         anonymous: anonymous ?? this.anonymous,
+        authorName: (anonymous ?? this.anonymous) ? null : authorName,
         priority: priority,
         askedPerson: askedPerson,
         photos: photos,
@@ -132,6 +138,7 @@ class CommunityPost {
   Map<String, Object?> toJson() => {
     'id': id,
     'authorId': authorId,
+    if (!anonymous && authorName != null) 'authorName': authorName,
     'title': title,
     'body': body,
     'category': category.name,
@@ -148,6 +155,7 @@ class CommunityPost {
   factory CommunityPost.fromJson(Map<String, dynamic> j) => CommunityPost(
     id: j['id'] as String,
     authorId: j['authorId'] as String,
+    authorName: j['anonymous'] == true ? null : j['authorName'] as String?,
     title: j['title'] as String,
     body: j['body'] as String,
     category: PostCategory.values.byName(j['category'] as String),
@@ -361,6 +369,17 @@ class CommunityController extends ChangeNotifier {
       ? id.substring(6)
       : school.classmates.where((p) => p.id == id).firstOrNull?.name ??
             'Student life';
+  String postAuthorName(CommunityPost post) {
+    if (post.anonymous) return 'Anonymous student';
+    return post.authorId == 'me'
+        ? profile.name
+        : post.authorName ?? authorName(post.authorId);
+  }
+
+  String replyAuthorName(PostReply reply) => reply.author == 'me'
+      ? profile.name
+      : reply.authorName ?? authorName(reply.author);
+
   String encode() => jsonEncode({
     'version': _privateChatCacheVersion,
     'profile': profile.toJson(),

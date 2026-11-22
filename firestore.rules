@@ -30,6 +30,16 @@ service cloud.firestore {
       ]);
     }
 
+    function authorNameOk(data) {
+      return !('authorName' in data)
+        || (data.authorName is string && data.authorName == userData().name);
+    }
+
+    function postAuthorNameOk(data) {
+      return authorNameOk(data)
+        && (!('authorName' in data) || data.get('anonymous', false) == false);
+    }
+
     function profileOk() {
       return noSecrets(request.resource.data)
         && request.resource.data.keys().hasOnly([
@@ -61,11 +71,13 @@ service cloud.firestore {
         allow read: if belongsToSchool(schoolId);
         allow create: if belongsToSchool(schoolId)
           && request.resource.data.authorId == request.auth.uid
-          && noSecrets(request.resource.data);
+          && noSecrets(request.resource.data)
+          && postAuthorNameOk(request.resource.data);
         allow update: if belongsToSchool(schoolId)
           && resource.data.authorId == request.auth.uid
           && request.resource.data.authorId == request.auth.uid
-          && noSecrets(request.resource.data);
+          && noSecrets(request.resource.data)
+          && postAuthorNameOk(request.resource.data);
         allow delete: if belongsToSchool(schoolId)
           && resource.data.authorId == request.auth.uid;
 
@@ -78,12 +90,14 @@ service cloud.firestore {
           allow create: if belongsToSchool(schoolId)
             && exists(parentPost())
             && request.resource.data.authorId == request.auth.uid
-            && noSecrets(request.resource.data);
+            && noSecrets(request.resource.data)
+            && authorNameOk(request.resource.data);
           allow update: if belongsToSchool(schoolId)
             && exists(parentPost())
             && resource.data.authorId == request.auth.uid
             && request.resource.data.authorId == request.auth.uid
-            && noSecrets(request.resource.data);
+            && noSecrets(request.resource.data)
+            && authorNameOk(request.resource.data);
           allow delete: if belongsToSchool(schoolId)
             && (resource.data.authorId == request.auth.uid
               || get(parentPost()).data.authorId == request.auth.uid);

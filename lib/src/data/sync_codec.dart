@@ -67,9 +67,15 @@ String localAuthor(String authorId, String uid) =>
 bool cloudPhoto(String value) =>
     value.isNotEmpty && !value.startsWith('data:') && value.length <= 500;
 
-Map<String, Object?> remotePostJson(CommunityPost post, String uid) => {
+Map<String, Object?> remotePostJson(
+  CommunityPost post,
+  String uid, {
+  String? verifiedAuthorName,
+}) => {
   'id': post.id,
   'authorId': remoteAuthor(post.authorId, uid),
+  if (!post.anonymous && verifiedAuthorName != null)
+    'authorName': verifiedAuthorName,
   'title': post.title,
   'body': post.body,
   'category': post.category.name,
@@ -99,10 +105,15 @@ String compactSharedGalleryCache(String encoded) {
   return jsonEncode(snapshot);
 }
 
-Map<String, Object?> remoteReplyJson(PostReply reply, String uid) => {
+Map<String, Object?> remoteReplyJson(
+  PostReply reply,
+  String uid, {
+  String? verifiedAuthorName,
+}) => {
   'id': reply.id,
   'author': reply.author,
   'authorId': remoteAuthor(reply.author, uid),
+  'authorName': ?verifiedAuthorName,
   'body': reply.body,
   'at': reply.at.toIso8601String(),
 };
@@ -150,6 +161,7 @@ CommunityPost localPostFromRemote(
   return CommunityPost(
     id: json['id'] as String,
     authorId: localAuthor(json['authorId'] as String? ?? '', uid),
+    authorName: json['anonymous'] == true ? null : savedAuthorName(json),
     title: json['title'] as String? ?? '',
     body: json['body'] as String? ?? '',
     category: category,
@@ -167,14 +179,22 @@ CommunityPost localPostFromRemote(
 
 PostReply localReplyFromRemote(Map<String, dynamic> json, String uid) {
   final authorId = json['authorId'] as String?;
+  final legacyAuthor = json['author'] as String?;
   return PostReply(
     id: json['id'] as String,
     author: authorId == null
-        ? json['author'] as String? ?? ''
+        ? (legacyAuthor == 'me' ? '' : legacyAuthor ?? '')
         : localAuthor(authorId, uid),
+    authorName: savedAuthorName(json),
     body: json['body'] as String? ?? '',
     at: DateTime.parse(json['at'] as String),
   );
+}
+
+String? savedAuthorName(Map<String, dynamic> data) {
+  final value = data['authorName'];
+  if (value is! String || value.trim().isEmpty) return null;
+  return value.trim();
 }
 
 ChatMessage localMessageFromRemote(
@@ -229,6 +249,7 @@ List<CommunityPost> mergePosts({
     byId[incoming.id] = CommunityPost(
       id: incoming.id,
       authorId: localAuthor(incoming.authorId, uid),
+      authorName: incoming.anonymous ? null : incoming.authorName,
       title: incoming.title,
       body: incoming.body,
       category: incoming.category,
@@ -265,6 +286,7 @@ List<PostReply> mergeReplies({
     byId[reply.id] = PostReply(
       id: reply.id,
       author: localAuthor(reply.author, uid),
+      authorName: reply.authorName,
       body: reply.body,
       at: reply.at,
     );

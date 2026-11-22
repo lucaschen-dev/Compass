@@ -64,7 +64,9 @@ The app hydrates private state once at sign-in into SharedPreferences and the in
 Signed-in users can read both demo school catalogs. Profile and private state are limited to `request.auth.uid`. Directory reads require matching school membership. A directory owner can publish only their current profile name. Friend request queries must filter by the signed-in UID in `participants`. Rules verify the request participants, their school, the sender name, and who can accept, decline, or cancel. Friend message reads and sends require an accepted friendship and matching school membership for both accounts. Message queries must specify a limit of 50 or less. Posts and replies require the user’s school to match. Authors may edit their own posts and replies. A post owner can remove replies when deleting their post. Legacy demo backup access requires the matching school and account UID in its path. The former shared demo chat path is denied because demo IDs do not establish historical participants. Calendar and password fields are rejected. Rules are in `firestore.rules`. Email/password accounts must use the school domain. Google accounts may use the Google email.
 
 
-## Verify friend request and messaging rules locally
+Shared posts and replies can include an `authorName` snapshot. Firestore verifies that it matches the signed-in author's private profile name. An anonymous post must omit `authorName`. Named legacy posts and replies can still omit the field until their author republishes the attribution through the app. School members can read the name alongside the shared content without getting access to the author's private profile or changing directory visibility.
+
+## Verify Firestore rules locally
 
 Run these commands from the repository root with Java installed. The test uses a Firebase demo project and synthetic accounts.
 
