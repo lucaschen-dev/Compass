@@ -345,11 +345,11 @@ CommunityDelta diffEncoded({
   final deleteReplies = <ReplyRemoval>[];
 
   for (final post in afterPosts.values) {
-    if (!ownsAuthor(post.authorId, uid)) continue;
     final before = beforePosts[post.id];
-    if (before == null ||
-        jsonEncode(remotePostJson(before, uid)) !=
-            jsonEncode(remotePostJson(post, uid))) {
+    if (ownsAuthor(post.authorId, uid) &&
+        (before == null ||
+            jsonEncode(remotePostJson(before, uid)) !=
+                jsonEncode(remotePostJson(post, uid)))) {
       upsertPosts.add(post);
     }
     final beforeReplies = {for (final reply in before?.replies ?? const []) reply.id: reply};
