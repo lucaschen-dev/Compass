@@ -293,6 +293,8 @@ class ChatThread {
 String communityStoreKey(DemoSchool school, LocalAccount account) =>
     'compass.preview.${school.id}.community.${Uri.encodeComponent(account.sessionKey)}';
 
+const _privateChatCacheVersion = 2;
+
 class CommunityController extends ChangeNotifier {
   CommunityController({
     required this.school,
@@ -311,9 +313,13 @@ class CommunityController extends ChangeNotifier {
         posts = (j['posts'] as List)
             .map((p) => CommunityPost.fromJson(p as Map<String, dynamic>))
             .toList();
-        threads = (j['threads'] as List)
+        final cachedThreads = (j['threads'] as List)
             .map((t) => ChatThread.fromJson(t as Map<String, dynamic>))
             .toList();
+        final uid = account.uid;
+        threads = uid != null && j['version'] != _privateChatCacheVersion
+            ? _recoverPrivateChats(threads, cachedThreads, uid)
+            : cachedThreads;
         savedPosts = Set<String>.from(j['saved'] as List? ?? []);
         likedPosts = Set<String>.from(j['liked'] as List? ?? []);
         followedTags = Set<String>.from(j['tags'] as List? ?? []);
@@ -351,7 +357,7 @@ class CommunityController extends ChangeNotifier {
       : school.classmates.where((p) => p.id == id).firstOrNull?.name ??
             'Student life';
   String encode() => jsonEncode({
-    'version': 1,
+    'version': _privateChatCacheVersion,
     'profile': profile.toJson(),
     'posts': posts.map((p) => p.toJson()).toList(),
     'threads': threads.map((t) => t.toJson()).toList(),
@@ -376,9 +382,13 @@ class CommunityController extends ChangeNotifier {
         posts = (j['posts'] as List)
             .map((p) => CommunityPost.fromJson(p as Map<String, dynamic>))
             .toList();
-        threads = (j['threads'] as List)
+        final cachedThreads = (j['threads'] as List)
             .map((t) => ChatThread.fromJson(t as Map<String, dynamic>))
             .toList();
+        final uid = account.uid;
+        threads = uid != null && j['version'] != _privateChatCacheVersion
+            ? _recoverPrivateChats(threads, cachedThreads, uid)
+            : cachedThreads;
         savedPosts = Set<String>.from(j['saved'] as List);
         likedPosts = Set<String>.from(j['liked'] as List);
         followedTags = Set<String>.from(j['tags'] as List);
@@ -542,6 +552,32 @@ List<CommunityPost> samplePosts(DemoSchool school) {
         priority: i == 0 ? 'Important' : 'Normal',
       ),
   ];
+}
+
+List<ChatThread> _recoverPrivateChats(
+  List<ChatThread> sampleThreads,
+  List<ChatThread> cachedThreads,
+  String uid,
+) {
+  final safe = {for (final thread in sampleThreads) thread.id: thread};
+  for (final thread in cachedThreads) {
+    final sample = safe[thread.id];
+    final ownMessages = thread.messages.where(
+      (message) => message.authorId == 'me' || message.authorId == uid,
+    );
+    if (sample == null && ownMessages.isEmpty && thread.draft.isEmpty) continue;
+
+    final messages = {
+      for (final message in sample?.messages ?? const <ChatMessage>[])
+        message.id: message,
+      for (final message in ownMessages) message.id: message,
+    }.values.toList()..sort((a, b) => a.at.compareTo(b.at));
+    safe[thread.id] = (sample ?? thread).copyWith(
+      messages: messages,
+      draft: thread.draft,
+    );
+  }
+  return safe.values.toList();
 }
 
 List<ChatThread> sampleThreads(DemoSchool school, {String? currentName}) {
