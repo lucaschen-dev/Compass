@@ -15,6 +15,7 @@ class CommunityProfilePage extends StatefulWidget {
     required this.onLogout,
     required this.onSwitchSchool,
     this.cloudBacked = false,
+    this.onOpenFriends,
   });
   final CommunityController c;
   final String email;
@@ -23,6 +24,7 @@ class CommunityProfilePage extends StatefulWidget {
   final Future<void> Function() onLogout;
   final VoidCallback onSwitchSchool;
   final bool cloudBacked;
+  final VoidCallback? onOpenFriends;
   @override
   State<CommunityProfilePage> createState() => _CommunityProfilePageState();
 }
@@ -187,6 +189,14 @@ class _CommunityProfilePageState extends State<CommunityProfilePage> {
                 PostTile(community: widget.c, post: post),
             const SizedBox(height: 24),
             const Divider(),
+            if (widget.onOpenFriends != null)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                leading: const Icon(Icons.people_outline),
+                title: const Text('Friends and requests'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: widget.onOpenFriends,
+              ),
             ListTile(
               contentPadding: const EdgeInsets.symmetric(vertical: 12),
               leading: const Icon(Icons.settings_outlined),

@@ -19,7 +19,7 @@ Future<void> openActivityDirectory(
   required DemoSchool school,
   required CommunityController community,
   required Set<String> friendIds,
-  required Future<void> Function(String) onAddFriend,
+  required Future<void> Function(String)? onAddFriend,
   required bool clubs,
 }) {
   return Navigator.of(context).push<void>(
@@ -41,7 +41,7 @@ Future<void> openActivityDetail(
   required CommunityController community,
   required DemoActivity activity,
   required Set<String> friendIds,
-  required Future<void> Function(String) onAddFriend,
+  required Future<void> Function(String)? onAddFriend,
   required bool club,
 }) {
   return Navigator.of(context).push<void>(
@@ -72,7 +72,7 @@ class ActivityDirectoryPage extends StatefulWidget {
   final DemoSchool school;
   final CommunityController community;
   final Set<String> friendIds;
-  final Future<void> Function(String) onAddFriend;
+  final Future<void> Function(String)? onAddFriend;
   final bool clubs;
 
   @override
@@ -220,7 +220,7 @@ class ClubDetailPage extends StatelessWidget {
   final CommunityController community;
   final DemoActivity club;
   final Set<String> friendIds;
-  final Future<void> Function(String) onAddFriend;
+  final Future<void> Function(String)? onAddFriend;
 
   DemoPerson? _person(String id) =>
       school.classmates.where((person) => person.id == id).firstOrNull;
@@ -422,23 +422,26 @@ class _MemberTile extends StatelessWidget {
   final DemoPerson person;
   final String role;
   final Set<String> friendIds;
-  final Future<void> Function(String) onAddFriend;
+  final Future<void> Function(String)? onAddFriend;
 
   @override
   Widget build(BuildContext context) {
     final isFriend = friendIds.contains(person.id);
+    final addFriend = onAddFriend;
     return ListTile(
       key: ValueKey('member-${person.id}'),
       contentPadding: EdgeInsets.zero,
       leading: StudentAvatar(name: person.name),
       title: Text(person.name),
       subtitle: Text('Grade ${person.grade} · $role'),
-      trailing: isFriend
+      trailing: addFriend == null
+          ? null
+          : isFriend
           ? const Text('Friends')
           : TextButton(
               key: ValueKey('friend-${person.id}'),
               onPressed: () => appSave(context, () async {
-                await onAddFriend(person.id);
+                await addFriend(person.id);
               }),
               child: const Text('Add friend'),
             ),

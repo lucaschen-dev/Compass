@@ -22,11 +22,15 @@ class DemoChatPage extends StatefulWidget {
     required this.school,
     required this.friendIds,
     required this.onAddFriend,
+    this.onOpenFriends,
+    this.pendingFriendRequests,
   });
   final CommunityController community;
   final DemoSchool school;
   final Set<String> friendIds;
   final Future<void> Function(String) onAddFriend;
+  final Future<void> Function()? onOpenFriends;
+  final Stream<int>? pendingFriendRequests;
   @override
   State<DemoChatPage> createState() => _DemoChatPageState();
 }
@@ -56,7 +60,7 @@ class _DemoChatPageState extends State<DemoChatPage> {
     builder: (_) => _NewChat(
       c: widget.community,
       onOpen: _open,
-      onAddFriend: widget.onAddFriend,
+      onAddFriend: widget.onOpenFriends == null ? widget.onAddFriend : null,
     ),
   );
   void _open(ChatThread t) {
@@ -148,8 +152,15 @@ class _DemoChatPageState extends State<DemoChatPage> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 TextButton.icon(
-                  onPressed: _addFriend,
-                  icon: const Icon(Icons.person_add_outlined, size: 20),
+                  onPressed: widget.onOpenFriends ?? _addFriend,
+                  icon: StreamBuilder<int>(
+                    stream: widget.pendingFriendRequests,
+                    builder: (context, snapshot) => Badge.count(
+                      count: snapshot.data ?? 0,
+                      isLabelVisible: (snapshot.data ?? 0) > 0,
+                      child: const Icon(Icons.person_add_outlined, size: 20),
+                    ),
+                  ),
                   label: const Text('Add friend'),
                 ),
                 IconButton(

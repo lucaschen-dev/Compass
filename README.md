@@ -9,11 +9,12 @@ Compass is a Flutter school community demo for Alderline and Cedarbrook. The hos
 - A school arrival animation fades in Compass and the school mark, then moves both into the Home header. The same brand elements remain mounted in the header, with stable type and color throughout the movement. Reduced-motion preferences are respected.
 - Four destinations: **Home**, **Guide**, **Chat**, and **Courses**. Desktop navigation highlights the entire icon-and-label row. The personal center is at the upper left. Appearance settings live inside the personal center.
 - Home carries Latest and For you feeds, six post categories, category/subtag filters, keyword search, topic recommendations, comments, likes, saved posts, anonymous posts, targeted questions, priorities, gallery posts, and composer drafts. For example, follow **Clubs → Badminton** to recommend badminton posts. Existing interest/time preferences still recommend sample peers, clubs, and events.
-- Home includes a **First week** launcher for the calendar, adviser and classroom directory, clubs, and sample classmates.
+- Home includes a **First week** launcher for the calendar, adviser and classroom directory, clubs, and school connections.
 - **Campus photos** groups Photo Gallery posts by date. Example albums show how Student Council and Photography Club could use the gallery. Demo school accounts can share up to four compressed photos per post with their school. This feature uses the existing shared posts collection.
 - A centered editable profile photo, full name, grade, bio, Posts/Saved/About sections, and settings.
 - Guide separates **Dress code**, **Grade**, **Faculty & classrooms**, **Campus life**, and **Course catalog**. Guide reading progress and course search remain available.
-- Chat includes **Add friend** with a searchable school demo roster, direct and group conversations, swipe-to-reply, message actions, reactions, drafts, local photo attachments, and block controls. Profile → Settings → Privacy shows blocked demo chats and lets users unblock them. Each signed-in account has its own friend list and Firebase demo chat backup. Messages in demo conversations do not reach other people, and backups do not use end-to-end encryption.
+- **Add friend** in Chat and **Friends and requests** in the personal center connect Firebase accounts in the same Compass school. Search for people who chose to show their name, or enter a Compass code. A request becomes a friendship only after the recipient accepts it. The Requests view supports accepting, declining and canceling pending requests. The local preview still uses sample classmates.
+- Demo Chat supports direct and group conversations, swipe-to-reply, message actions, reactions, drafts, local photo attachments, and block controls. Profile → Settings → Privacy shows blocked demo chats and lets users unblock them. Messages in these conversations do not reach other people, and cloud backups do not use end-to-end encryption.
 - Courses provides **Month**, **Week**, and **Day** views, day agendas, calendar details, local ICS import, and folded **Graduation Requirements**. The existing manual requirement calculations are preserved.
 
 ## Email service status
@@ -36,7 +37,7 @@ Calendar events do not automatically change requirement completion. Event-to-cou
 
 ## Data separation
 
-Storage follows `compass.preview.<school-id>...`. Guide, requirement and preference settings use school-scoped device keys. Friends, private calendar subscriptions and chat caches use account-scoped keys. Firebase stores private account state separately from school-visible posts. Older device-wide friend keys have no recorded owner. Existing per-account Firebase friend lists restore on sign-in. A pre-login calendar is migrated to the first local account only; resetting it does not restore legacy data. Appearance is an app preference. Local storage belongs to the browser and origin; it does not transfer automatically between localhost, the hosted Site, browsers, or devices.
+Storage follows `compass.preview.<school-id>...`. Guide, requirement and preference settings use school-scoped device keys. Sample contacts, private calendar subscriptions and chat caches use account-scoped keys. Real connections sync from Firestore and require an accepted request. Sample contacts never become real friendships. Private account profiles remain owner-readable. People can opt into the directory with their name and turn visibility off again. A pre-login calendar is migrated to the first local account only. Appearance is an app preference. Local storage belongs to the browser and origin.
 
 ## Develop
 

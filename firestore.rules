@@ -5,8 +5,12 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function schoolProfile(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
     function userData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return schoolProfile(request.auth.uid);
     }
 
     function belongsToSchool(schoolId) {
@@ -86,6 +90,81 @@ service cloud.firestore {
         }
       }
 
+      match /directory/{uid} {
+        allow read: if belongsToSchool(schoolId);
+        allow create, update: if belongsToSchool(schoolId)
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['name'])
+          && request.resource.data.name is string
+          && request.resource.data.name == userData().name;
+        allow delete: if signedIn() && request.auth.uid == uid;
+      }
+
+      match /friendRequests/{pairId} {
+        function validUid(uid) {
+          return uid is string && uid.matches('^[A-Za-z0-9_-]{1,128}$');
+        }
+
+        function matchesSortedPair(data) {
+          let senderFirst = data.senderId < data.recipientId;
+          let first = senderFirst ? data.senderId : data.recipientId;
+          let second = senderFirst ? data.recipientId : data.senderId;
+          return first != second
+            && pairId == first + ':' + second
+            && data.participants == [first, second];
+        }
+
+        function sendsPendingRequest() {
+          let data = request.resource.data;
+          return data.keys().hasOnly([
+              'participants', 'senderId', 'recipientId', 'senderName',
+              'status', 'createdAt', 'updatedAt'
+            ])
+            && validUid(data.senderId)
+            && validUid(data.recipientId)
+            && data.senderId == request.auth.uid
+            && matchesSortedPair(data)
+            && data.senderName is string
+            && data.senderName == userData().name
+            && data.status == 'pending'
+            && data.createdAt == request.time
+            && data.updatedAt == request.time
+            && schoolProfile(data.recipientId).schoolId == schoolId;
+        }
+
+        function respondsToPendingRequest() {
+          let data = request.resource.data;
+          let changes = data.diff(resource.data).affectedKeys();
+          return resource.data.status == 'pending'
+            && data.updatedAt == request.time
+            && (
+              (data.status == 'canceled'
+                && request.auth.uid == resource.data.senderId
+                && changes.hasOnly(['status', 'updatedAt']))
+              || (data.status == 'declined'
+                && request.auth.uid == resource.data.recipientId
+                && changes.hasOnly(['status', 'updatedAt']))
+              || (data.status == 'accepted'
+                && request.auth.uid == resource.data.recipientId
+                && changes.hasOnly(['status', 'updatedAt', 'recipientName'])
+                && data.recipientName is string
+                && data.recipientName == userData().name
+                && schoolProfile(resource.data.senderId).schoolId == schoolId)
+            );
+        }
+
+        // A transaction must be able to read its own pair before it exists.
+        allow get: if belongsToSchool(schoolId)
+          && request.auth.uid in pairId.split(':');
+        allow list: if belongsToSchool(schoolId)
+          && request.auth.uid in resource.data.participants;
+        allow create: if belongsToSchool(schoolId) && sendsPendingRequest();
+        allow update: if belongsToSchool(schoolId)
+          && ((resource.data.status == 'canceled' && sendsPendingRequest())
+            || respondsToPendingRequest());
+        allow delete: if false;
+      }
+
       // Older clients used shared demo IDs that do not identify participants.
       match /threads/{legacyPath=**} {
         allow read, write: if false;
@@ -94,9 +173,13 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
-      allow create, update: if signedIn()
+      allow create: if signedIn()
         && request.auth.uid == uid
         && profileOk();
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && profileOk()
+        && request.resource.data.schoolId == resource.data.schoolId;
       allow delete: if false;
 
       match /schools/{schoolId} {

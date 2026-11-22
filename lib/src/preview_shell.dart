@@ -17,6 +17,7 @@ import 'school_calendar_data.dart';
 import 'school_demo.dart';
 import 'school_arrival_brand.dart';
 import 'school_pages.dart';
+import 'school_people_directory.dart';
 import 'firebase/compass_remote.dart';
 import 'firebase/compass_scope.dart';
 
@@ -133,6 +134,24 @@ class _PreviewShellState extends State<PreviewShell>
     }
   }
 
+  Future<void> _openFriends(BuildContext context) {
+    final remote = CompassScope.maybeOf(context);
+    if (remote != null) {
+      return openSchoolPeopleDirectory(
+        context,
+        schoolName: shortSchoolName(widget.school),
+        repository: remote.friends,
+      );
+    }
+    return openSchoolFriendDirectory(
+      context,
+      school: widget.school,
+      friendIds: widget.friendIds,
+      onAddFriend: widget.onAddFriend,
+      isBlocked: (id) => isBlockedClassmate(widget.community, id),
+    );
+  }
+
   void _profile() => Navigator.push(
     context,
     MaterialPageRoute<void>(
@@ -144,6 +163,9 @@ class _PreviewShellState extends State<PreviewShell>
         onLogout: widget.onLogout,
         onSwitchSchool: widget.onSwitchSchool,
         cloudBacked: CompassScope.maybeOf(context) != null,
+        onOpenFriends: CompassScope.maybeOf(context) == null
+            ? null
+            : () => _openFriends(context),
       ),
     ),
   );
@@ -159,7 +181,7 @@ class _PreviewShellState extends State<PreviewShell>
           preferences: widget.preferences,
           onSavePreferences: widget.onSavePreferences,
           friendIds: widget.friendIds,
-          onAddFriend: widget.onAddFriend,
+          onAddFriend: remote == null ? widget.onAddFriend : null,
           onRefreshPhotos: remote == null
               ? null
               : () => remote.refreshPosts(force: true),
@@ -177,16 +199,11 @@ class _PreviewShellState extends State<PreviewShell>
               school: widget.school,
               community: widget.community,
               friendIds: widget.friendIds,
-              onAddFriend: widget.onAddFriend,
+              onAddFriend: remote == null ? widget.onAddFriend : null,
               clubs: true,
             ),
-            onClassmates: () => openSchoolFriendDirectory(
-              context,
-              school: widget.school,
-              friendIds: widget.friendIds,
-              onAddFriend: widget.onAddFriend,
-              isBlocked: (id) => isBlockedClassmate(widget.community, id),
-            ),
+            onClassmates: () => _openFriends(context),
+            sampleClassmates: remote == null,
           ),
         ),
         _Destination.guide => CulturePage(
@@ -199,6 +216,8 @@ class _PreviewShellState extends State<PreviewShell>
           school: widget.school,
           friendIds: widget.friendIds,
           onAddFriend: widget.onAddFriend,
+          onOpenFriends: remote == null ? null : () => _openFriends(context),
+          pendingFriendRequests: remote?.pendingFriendRequests,
         ),
         _Destination.courses => DemoAcademicsPage(
           school: widget.school,
@@ -353,9 +372,11 @@ class _FirstWeek extends StatelessWidget {
     required this.onAdviser,
     required this.onClubs,
     required this.onClassmates,
+    required this.sampleClassmates,
   });
 
   final VoidCallback onCalendar, onAdviser, onClubs, onClassmates;
+  final bool sampleClassmates;
 
   @override
   Widget build(BuildContext context) {
@@ -392,7 +413,9 @@ class _FirstWeek extends StatelessWidget {
               ),
               (
                 icon: Icons.person_add_alt_outlined,
-                label: 'Meet sample classmates',
+                label: sampleClassmates
+                    ? 'Meet sample classmates'
+                    : 'Connect with school members',
                 open: onClassmates,
               ),
             ])

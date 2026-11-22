@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../campus_photo_media.dart';
 import '../community_models.dart';
 import '../data/firestore_repositories.dart';
+import '../data/friend_repository.dart';
 import '../data/sync_codec.dart';
 import '../data/user_state.dart';
 import '../school_demo.dart';
@@ -29,6 +30,25 @@ class CompassRemote {
   final UserSchoolState Function() readState;
   final Future<void> Function(UserSchoolState state) applyState;
   final ValueNotifier<String?> notice;
+
+  late final FriendRepository friends = FirebaseFriendRepository(
+    firestore: gateway.firestore,
+    auth: gateway.auth,
+    schoolId: school.id,
+    uid: uid,
+  );
+  late final Stream<int> pendingFriendRequests = friends
+      .watchRequests()
+      .map(
+        (requests) => requests
+            .where(
+              (request) =>
+                  request.status == FriendRequestStatus.pending &&
+                  request.isIncoming(uid),
+            )
+            .length,
+      )
+      .distinct();
 
   CommunityController? controller;
   String? _baseline;

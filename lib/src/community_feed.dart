@@ -27,7 +27,7 @@ class CommunityFeed extends StatefulWidget {
   final StudentPreferences preferences;
   final Future<void> Function(StudentPreferences) onSavePreferences;
   final Set<String> friendIds;
-  final Future<void> Function(String) onAddFriend;
+  final Future<void> Function(String)? onAddFriend;
   final Widget? newcomerSection;
   final Future<void> Function()? onRefreshPhotos;
   final Future<void> Function(CommunityPost)? publishGalleryPost;
