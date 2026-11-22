@@ -8,8 +8,6 @@ import 'app_ui.dart';
 import 'chat_friend_directory.dart';
 import 'chat_reply_gesture.dart';
 import 'community_models.dart';
-import 'firebase/compass_remote.dart';
-import 'firebase/compass_scope.dart';
 import 'school_demo.dart';
 
 export 'chat_friend_directory.dart'
@@ -22,15 +20,11 @@ class DemoChatPage extends StatefulWidget {
     required this.school,
     required this.friendIds,
     required this.onAddFriend,
-    this.onOpenFriends,
-    this.pendingFriendRequests,
   });
   final CommunityController community;
   final DemoSchool school;
   final Set<String> friendIds;
   final Future<void> Function(String) onAddFriend;
-  final Future<void> Function()? onOpenFriends;
-  final Stream<int>? pendingFriendRequests;
   @override
   State<DemoChatPage> createState() => _DemoChatPageState();
 }
@@ -60,7 +54,7 @@ class _DemoChatPageState extends State<DemoChatPage> {
     builder: (_) => _NewChat(
       c: widget.community,
       onOpen: _open,
-      onAddFriend: widget.onOpenFriends == null ? widget.onAddFriend : null,
+      onAddFriend: widget.onAddFriend,
     ),
   );
   void _open(ChatThread t) {
@@ -152,15 +146,8 @@ class _DemoChatPageState extends State<DemoChatPage> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 TextButton.icon(
-                  onPressed: widget.onOpenFriends ?? _addFriend,
-                  icon: StreamBuilder<int>(
-                    stream: widget.pendingFriendRequests,
-                    builder: (context, snapshot) => Badge.count(
-                      count: snapshot.data ?? 0,
-                      isLabelVisible: (snapshot.data ?? 0) > 0,
-                      child: const Icon(Icons.person_add_outlined, size: 20),
-                    ),
-                  ),
+                  onPressed: _addFriend,
+                  icon: const Icon(Icons.person_add_outlined, size: 20),
                   label: const Text('Add friend'),
                 ),
                 IconButton(
@@ -469,7 +456,6 @@ class _ConversationPageState extends State<ConversationPage> {
   String? _replyTo, _photo, _enteringMessage;
   bool _busy = false;
   Timer? _draft;
-  CompassRemote? _remote;
   ChatThread get thread =>
       widget.c.threads.firstWhere((t) => t.id == widget.threadId);
 
@@ -485,16 +471,10 @@ class _ConversationPageState extends State<ConversationPage> {
     if (thread.unread > 0) {
       widget.c.patchThread(thread.id, unread: 0).catchError((_) {});
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _remote = CompassScope.maybeOf(context);
-      unawaited(_remote?.watchThread(widget.threadId));
-    });
   }
 
   @override
   void dispose() {
-    unawaited(_remote?.unwatchThread());
     if (_draft?.isActive == true) _saveDraft(_text.text);
     _draft?.cancel();
     _messages.dispose();
@@ -1182,16 +1162,22 @@ class _ConversationPageState extends State<ConversationPage> {
                                 icon: const Icon(Icons.add),
                               ),
                               Expanded(
-                                child: CallbackShortcuts(
-                                  bindings: {
-                                    const SingleActivator(
-                                      LogicalKeyboardKey.enter,
-                                      control: true,
-                                    ): _send,
-                                    const SingleActivator(
-                                      LogicalKeyboardKey.enter,
-                                      meta: true,
-                                    ): _send,
+                                child: Focus(
+                                  canRequestFocus: false,
+                                  onKeyEvent: (_, event) {
+                                    final composing = _text.value.composing;
+                                    if (event is! KeyDownEvent ||
+                                        (event.logicalKey !=
+                                                LogicalKeyboardKey.enter &&
+                                            event.logicalKey !=
+                                                LogicalKeyboardKey.numpadEnter) ||
+                                        HardwareKeyboard.instance.isShiftPressed ||
+                                        (composing.isValid &&
+                                            !composing.isCollapsed)) {
+                                      return KeyEventResult.ignored;
+                                    }
+                                    unawaited(_send());
+                                    return KeyEventResult.handled;
                                   },
                                   child: TextField(
                                     controller: _text,
@@ -1204,7 +1190,8 @@ class _ConversationPageState extends State<ConversationPage> {
                                       hintText: 'Message',
                                       counterText: '',
                                     ),
-                                    textInputAction: TextInputAction.newline,
+                                    textInputAction: TextInputAction.send,
+                                    onSubmitted: (_) => _send(),
                                   ),
                                 ),
                               ),

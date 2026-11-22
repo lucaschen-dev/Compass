@@ -163,6 +163,42 @@ service cloud.firestore {
           && ((resource.data.status == 'canceled' && sendsPendingRequest())
             || respondsToPendingRequest());
         allow delete: if false;
+
+        match /messages/{messageId} {
+          function acceptedConversation() {
+            let friendship = get(
+              /databases/$(database)/documents/schools/$(schoolId)/friendRequests/$(pairId)
+            ).data;
+            let otherUid = friendship.senderId == request.auth.uid
+              ? friendship.recipientId : friendship.senderId;
+            return friendship.status == 'accepted'
+              && request.auth.uid in friendship.participants
+              && schoolProfile(otherUid).schoolId == schoolId;
+          }
+
+          function messageParticipant() {
+            return belongsToSchool(schoolId)
+              && request.auth.uid in pairId.split(':')
+              && acceptedConversation();
+          }
+
+          function sendsMessage() {
+            let data = request.resource.data;
+            return messageId.matches('^[A-Za-z0-9_-]{1,128}:[A-Za-z0-9]{20}$')
+              && messageId.split(':')[0] == request.auth.uid
+              && data.keys().hasOnly(['senderId', 'text', 'createdAt'])
+              && data.senderId == request.auth.uid
+              && data.text is string
+              && data.text.size() <= 4000
+              && !data.text.matches('^\\s*$')
+              && data.createdAt == request.time;
+          }
+
+          allow get: if messageParticipant();
+          allow list: if messageParticipant() && request.query.limit <= 50;
+          allow create: if messageParticipant() && sendsMessage();
+          allow update, delete: if false;
+        }
       }
 
       // Older clients used shared demo IDs that do not identify participants.

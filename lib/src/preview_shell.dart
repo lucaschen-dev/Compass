@@ -16,6 +16,7 @@ import 'recommendations.dart';
 import 'school_calendar_data.dart';
 import 'school_demo.dart';
 import 'school_arrival_brand.dart';
+import 'school_chat_page.dart';
 import 'school_pages.dart';
 import 'school_people_directory.dart';
 import 'firebase/compass_remote.dart';
@@ -129,8 +130,6 @@ class _PreviewShellState extends State<PreviewShell>
     final remote = _remote ?? CompassScope.maybeOf(context);
     if (destination == _Destination.home) {
       unawaited(remote?.refreshPosts());
-    } else if (destination == _Destination.chat) {
-      unawaited(remote?.refreshThreads());
     }
   }
 
@@ -141,6 +140,13 @@ class _PreviewShellState extends State<PreviewShell>
         context,
         schoolName: shortSchoolName(widget.school),
         repository: remote.friends,
+        onOpenChat: (context, uid, name) =>
+            openSchoolConversation(
+              context,
+              chat: remote.chat,
+              peerId: uid,
+              peerName: name,
+            ),
       );
     }
     return openSchoolFriendDirectory(
@@ -211,14 +217,18 @@ class _PreviewShellState extends State<PreviewShell>
           readIds: widget.cultureReadIds,
           onToggleRead: widget.onToggleCultureRead,
         ),
-        _Destination.chat => DemoChatPage(
-          community: widget.community,
-          school: widget.school,
-          friendIds: widget.friendIds,
-          onAddFriend: widget.onAddFriend,
-          onOpenFriends: remote == null ? null : () => _openFriends(context),
-          pendingFriendRequests: remote?.pendingFriendRequests,
-        ),
+        _Destination.chat => remote == null
+            ? DemoChatPage(
+                community: widget.community,
+                school: widget.school,
+                friendIds: widget.friendIds,
+                onAddFriend: widget.onAddFriend,
+              )
+            : SchoolChatPage(
+                friends: remote.friends,
+                chat: remote.chat,
+                onAddFriend: () => _openFriends(context),
+              ),
         _Destination.courses => DemoAcademicsPage(
           school: widget.school,
           ucInterest: widget.ucInterest,

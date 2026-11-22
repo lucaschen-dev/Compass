@@ -2,7 +2,7 @@
 
 Compass uses Firebase project `compass-database-480ea`. Firebase Auth owns email and password. Firestore does not store password hashes, and personal calendar URLs or imports never leave the device.
 
-Guide text, course catalogs, graduation requirements, club and event definitions, and sample classmates ship in the app. Firestore stores the school catalog stubs, private user profiles and state, opt-in directory entries, friend requests, shared posts and replies, and each account’s demo chat backup.
+Guide text, course catalogs, graduation requirements, club and event definitions, and sample classmates ship in the app. Firestore stores the school catalog stubs, private user profiles and state, opt-in directory entries, friend requests, friend messages, shared posts and replies, and each account’s older demo chat backup.
 
 ## Collections
 
@@ -12,6 +12,7 @@ users/{uid}
 users/{uid}/schools/{schoolId}
 schools/{schoolId}/directory/{uid}
 schools/{schoolId}/friendRequests/{pairId}
+schools/{schoolId}/friendRequests/{pairId}/messages/{messageId}
 schools/{schoolId}/posts/{postId}
 schools/{schoolId}/posts/{postId}/replies/{replyId}
 users/{uid}/schools/{schoolId}/threads/{threadId}
@@ -44,24 +45,26 @@ users/{uid}/schools/{schoolId}/threads/{threadId}/messages/{messageId}
 
 **Friend request** (`schools/{schoolId}/friendRequests/{pairId}`): sorted `participants` (exactly two Firebase UIDs), `senderId`, `recipientId`, `senderName`, `status`, `createdAt`, `updatedAt`. The document ID is the two sorted UIDs joined with `:`. Status begins at `pending`. The recipient can change it to `accepted` or `declined`, and the sender can change it to `canceled`. On acceptance the recipient adds `recipientName` from their own profile. Only accepted requests count as friends, and both people can see the accepted relationship. One canonical document and transactional writes keep simultaneous sends and retries consistent. A canceled request can be sent again. Decline is terminal.
 
+**Friend message** (`schools/{schoolId}/friendRequests/{pairId}/messages/{messageId}`): `senderId`, `text` (up to 4,000 characters), `createdAt` (server timestamp). An accepted friendship is the conversation. Both participants can read it while their accounts belong to the same school. Each message is immutable and its ID starts with the sender’s UID. Retrying the same write with the same ID delivers one message. The conversation listens to up to 50 recent messages and uses timestamp and ID cursors to read earlier pages. Friend messages are stored in Firestore without end-to-end encryption.
+
 **Post:** `id`, `authorId` (the Auth uid), `title`, `body`, `category`, `subtag`, `at`, `anonymous`, `priority`, `askedPerson`, `photos`, `likes`. Replies are separate documents. Photo Gallery posts can embed up to four compressed base64 photos (160,000 characters each). Compass rebuilds shared photos from pixels, omitting original metadata. Photos attached to non-gallery posts and demo chats stay on the device.
 
 **Reply:** `id`, `author`, `authorId`, `body`, `at`.
 
-**Thread:** `id`, `title`, `participantIds`, `group`, `unread`, `pinned`, `muted`, `archived`, `left`, `updatedAt`. Drafts stay on the device. Demo contact IDs are display metadata. The UID in the path owns the backup and is the only account allowed to read it.
+**Legacy demo thread:** `id`, `title`, `participantIds`, `group`, `unread`, `pinned`, `muted`, `archived`, `left`, `updatedAt`. Drafts stay on the device. Demo contact IDs are display metadata. The UID in the path owns the backup and is the only account allowed to read it.
 
-**Message:** `id`, `senderId`, `text`, `createdAt`, `replyTo`, `reaction`, `unsent`, `edited`. Delete-for-me hides the message on the current device.
+**Legacy demo message:** `id`, `senderId`, `text`, `createdAt`, `replyTo`, `reaction`, `unsent`, `edited`. Delete-for-me hides the message on the current device.
 
 ## Sync
 
-The app hydrates once at sign-in into SharedPreferences and the in-memory controllers. Later edits write through after a short debounce. Home and Chat reload when their local cache is older than five minutes. An open conversation listens for new messages until that screen closes. If a write fails, the change remains on the device and the app says it could not sync.
+The app hydrates private state once at sign-in into SharedPreferences and the in-memory controllers. Later edits write through after a short debounce. Home reloads when its local cache is older than five minutes. An open friend conversation listens for new messages until the screen closes. Sending requires a Firestore acknowledgement, and the composer retains failed drafts for retry.
 
 ## Rules
 
-Signed-in users can read both demo school catalogs. Profile and private state are limited to `request.auth.uid`. Directory reads require matching school membership. A directory owner can publish only their current profile name. Friend request queries must filter by the signed-in UID in `participants`. Rules also verify the request participants, their school, the sender name, and who can accept, decline, or cancel. Posts and replies require the user’s school to match. Authors may edit their own posts and replies. A post owner can remove replies when deleting their post. Chat requires both the matching school and the UID in the path. The former shared chat path is denied because its demo IDs do not establish historical participants. The app can carry forward its own locally cached outgoing messages and drafts. Calendar and password fields are rejected. Rules are in `firestore.rules`. Email/password accounts must use the school domain. Google accounts may use the Google email.
+Signed-in users can read both demo school catalogs. Profile and private state are limited to `request.auth.uid`. Directory reads require matching school membership. A directory owner can publish only their current profile name. Friend request queries must filter by the signed-in UID in `participants`. Rules verify the request participants, their school, the sender name, and who can accept, decline, or cancel. Friend message reads and sends require an accepted friendship and matching school membership for both accounts. Message queries must specify a limit of 50 or less. Posts and replies require the user’s school to match. Authors may edit their own posts and replies. A post owner can remove replies when deleting their post. Legacy demo backup access requires the matching school and account UID in its path. The former shared demo chat path is denied because demo IDs do not establish historical participants. Calendar and password fields are rejected. Rules are in `firestore.rules`. Email/password accounts must use the school domain. Google accounts may use the Google email.
 
 
-## Verify friend request rules locally
+## Verify friend request and messaging rules locally
 
 Run these commands from the repository root with Java installed. The test uses a Firebase demo project and synthetic accounts.
 

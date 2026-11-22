@@ -12,8 +12,9 @@ void main() {
 
   Future<void> showPeople(
     WidgetTester tester,
-    _FriendFixture repository,
-  ) async {
+    _FriendFixture repository, {
+    void Function(BuildContext, String, String)? onOpenChat,
+  }) async {
     tester.view.physicalSize = const Size(320, 700);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -25,6 +26,7 @@ void main() {
         home: SchoolPeopleDirectory(
           schoolName: 'Alderline',
           repository: repository,
+          onOpenChat: onOpenChat,
         ),
       ),
     );
@@ -37,7 +39,12 @@ void main() {
     'search sends a pending request and only acceptance adds a friend',
     (tester) async {
       final repo = _FriendFixture([teacher, classmate]);
-      await showPeople(tester, repo);
+      (String, String)? openedChat;
+      await showPeople(
+        tester,
+        repo,
+        onOpenChat: (_, uid, name) => openedChat = (uid, name),
+      );
       await tester.enterText(find.byType(TextField), 'jordan');
       await tester.pumpAndSettle();
       expect(find.text(teacher.name), findsOneWidget);
@@ -52,6 +59,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(teacher.name), findsNothing);
       expect(find.text('Accepted requests appear here.'), findsOneWidget);
+      expect(find.byTooltip('Message Jordan Lee'), findsNothing);
       repo.replaceRequests([
         const SchoolFriendRequest(
           senderId: 'me',
@@ -62,6 +70,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(teacher.name), findsOneWidget);
       expect(find.text('Accepted requests appear here.'), findsNothing);
+      await tester.tap(find.byTooltip('Message Jordan Lee'));
+      expect(openedChat, (teacher.uid, teacher.name));
       expect(tester.takeException(), isNull);
     },
   );

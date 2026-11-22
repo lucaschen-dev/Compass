@@ -461,39 +461,41 @@ class _PrivacyPage extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               cloudBacked
-                  ? 'Posts you share can be read by Compass accounts set up for this school. Your demo conversations are visible to you and use account-scoped Firebase backups. Those backups do not use end-to-end encryption.'
+                  ? 'Posts you share are visible to Compass accounts at this school. Only you and your accepted friend can read a direct chat in Compass. Messages are stored in Firebase without end-to-end encryption.'
                   : 'Your posts and demo conversations are saved in this browser or on this device.',
               style: text.bodyLarge,
             ),
-            const SizedBox(height: 10),
-            Text(
-              'Chats use sample classmates. Chat drafts and photos you attach to a demo chat stay on this device.',
-              style: text.bodyLarge,
-            ),
-            const SizedBox(height: 28),
-            Text('Blocked demo chats', style: text.titleLarge),
-            const SizedBox(height: 8),
-            if (blocked.isEmpty) const Text('No blocked demo chats.'),
-            for (final thread in blocked)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(thread.name),
-                trailing: TextButton(
-                  onPressed: () => appSave(
-                    context,
-                    () => community.change(() {
-                      community.threads = [
-                        for (final current in community.threads)
-                          if (current.id == thread.id && !current.group)
-                            current.copyWith(left: false)
-                          else
-                            current,
-                      ];
-                    }),
-                  ),
-                  child: const Text('Unblock'),
-                ),
+            if (!cloudBacked) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Chat drafts and photos you attach to a demo chat stay on this device.',
+                style: text.bodyLarge,
               ),
+              const SizedBox(height: 28),
+              Text('Blocked demo chats', style: text.titleLarge),
+              const SizedBox(height: 8),
+              if (blocked.isEmpty) const Text('No blocked demo chats.'),
+              for (final thread in blocked)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(thread.name),
+                  trailing: TextButton(
+                    onPressed: () => appSave(
+                      context,
+                      () => community.change(() {
+                        community.threads = [
+                          for (final current in community.threads)
+                            if (current.id == thread.id && !current.group)
+                              current.copyWith(left: false)
+                            else
+                              current,
+                        ];
+                      }),
+                    ),
+                    child: const Text('Unblock'),
+                  ),
+                ),
+            ],
           ],
         ),
       );

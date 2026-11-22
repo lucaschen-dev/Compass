@@ -8,10 +8,14 @@ Future<void> openSchoolPeopleDirectory(
   BuildContext context, {
   required String schoolName,
   required FriendRepository repository,
+  void Function(BuildContext, String, String)? onOpenChat,
 }) => Navigator.of(context).push<void>(
   MaterialPageRoute(
-    builder: (_) =>
-        SchoolPeopleDirectory(schoolName: schoolName, repository: repository),
+    builder: (_) => SchoolPeopleDirectory(
+      schoolName: schoolName,
+      repository: repository,
+      onOpenChat: onOpenChat,
+    ),
   ),
 );
 
@@ -22,10 +26,12 @@ class SchoolPeopleDirectory extends StatefulWidget {
     super.key,
     required this.schoolName,
     required this.repository,
+    this.onOpenChat,
   });
 
   final String schoolName;
   final FriendRepository repository;
+  final void Function(BuildContext, String, String)? onOpenChat;
 
   @override
   State<SchoolPeopleDirectory> createState() => _SchoolPeopleDirectoryState();
@@ -232,7 +238,14 @@ class _SchoolPeopleDirectoryState extends State<SchoolPeopleDirectory> {
       ],
       if (_view == _FriendView.friends) ...[
         if (friends.isEmpty) _empty('Accepted requests appear here.'),
-        for (final user in friends) _PersonRow(name: nameOf(user)),
+        for (final user in friends)
+          _PersonRow(
+            name: nameOf(user),
+            trailing: _chatButton(user, nameOf(user)),
+            onTap: widget.onOpenChat == null
+                ? null
+                : () => widget.onOpenChat!(context, user, nameOf(user)),
+          ),
       ],
     ];
     return Center(
@@ -417,6 +430,16 @@ class _SchoolPeopleDirectoryState extends State<SchoolPeopleDirectory> {
     }
   }
 
+  Widget? _chatButton(String uid, String name) {
+    final open = widget.onOpenChat;
+    if (open == null) return null;
+    return IconButton(
+      tooltip: 'Message $name',
+      icon: const Icon(Icons.chat_bubble_outline),
+      onPressed: () => open(context, uid, name),
+    );
+  }
+
   Future<void> _respond(String uid, {required bool accept}) => _save(
     uid,
     () => widget.repository.respondToRequest(uid, accept: accept),
@@ -430,12 +453,14 @@ class _PersonRow extends StatelessWidget {
     this.subtitle,
     this.trailing,
     this.actions = const [],
+    this.onTap,
   });
 
   final String name;
   final String? subtitle;
   final Widget? trailing;
   final List<Widget> actions;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -447,6 +472,7 @@ class _PersonRow extends StatelessWidget {
         title: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
         subtitle: subtitle == null ? null : Text(subtitle!),
         trailing: trailing,
+        onTap: onTap,
       ),
       if (actions.isNotEmpty)
         Padding(

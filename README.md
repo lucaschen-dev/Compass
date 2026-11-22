@@ -14,7 +14,8 @@ Compass is a Flutter school community demo for Alderline and Cedarbrook. The hos
 - A centered editable profile photo, full name, grade, bio, Posts/Saved/About sections, and settings.
 - Guide separates **Dress code**, **Grade**, **Faculty & classrooms**, **Campus life**, and **Course catalog**. Guide reading progress and course search remain available.
 - **Add friend** in Chat and **Friends and requests** in the personal center connect Firebase accounts in the same Compass school. Search for people who chose to show their name, or enter a Compass code. A request becomes a friendship only after the recipient accepts it. The Requests view supports accepting, declining and canceling pending requests. The local preview still uses sample classmates.
-- Demo Chat supports direct and group conversations, swipe-to-reply, message actions, reactions, drafts, local photo attachments, and block controls. Profile → Settings → Privacy shows blocked demo chats and lets users unblock them. Messages in these conversations do not reach other people, and cloud backups do not use end-to-end encryption.
+- Signed-in Chat lists accepted friends. Open a conversation from Chat or from the Friends list to exchange direct text messages in real time. Press **Enter** to send and **Shift+Enter** to add a line. Firestore limits direct chat access to the two members of the accepted friendship. Messages are stored without end-to-end encryption.
+- The local preview still includes sample direct and group conversations, swipe-to-reply, reactions, drafts, and local photo attachments.
 - Courses provides **Month**, **Week**, and **Day** views, day agendas, calendar details, local ICS import, and folded **Graduation Requirements**. The existing manual requirement calculations are preserved.
 
 ## Email service status

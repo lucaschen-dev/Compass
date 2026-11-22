@@ -14,7 +14,7 @@ Continue the existing Flutter app and preserve school-scoped data.
 - Campus photos collects dated Photo Gallery posts, with sample organization albums and compressed school-shared uploads.
 - A centered editable profile with Posts/Saved/About sections and a Privacy screen for blocked demo chats.
 - Guide is divided into Dress code, Grade, Faculty & classrooms, Campus life, and Course catalog.
-- Firebase accounts can send same-school friend requests by Compass code or through the opt-in directory. Incoming requests require acceptance. Demo direct and group conversations retain swipe-to-reply, reactions, and private backups.
+- Firebase accounts can send same-school friend requests by Compass code or through the opt-in directory. Accepted friends can exchange private direct text messages from Chat or Friends. The local preview retains demo conversations.
 - Courses has live WebCal connection, local import, Month/Week/Day views, offline snapshots, and collapsed manual Graduation Requirements.
 - Maintain and publish the existing fixed Site, then push the reviewed source changes to GitHub.
 
@@ -25,5 +25,5 @@ Review entry/login, Home, profile/settings, Guide, Chat, and Courses at phone an
 ## Later / needs external services
 
 - Configure email setup/recovery and verify real school memberships before using the app for a school rollout.
-- Verified organization publishing, reporting and moderation, and live student messaging with reviewed encryption remain future work.
+- Verified organization publishing, reporting and moderation, and end-to-end encryption for real messaging remain future work.
 - Calendar events should eventually update completed courses that fulfill `requirementsChecklist`; this iteration does not automate requirement progress.

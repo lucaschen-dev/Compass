@@ -15,8 +15,10 @@ const {
   collection,
   deleteDoc,
   doc,
+  documentId,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -24,6 +26,7 @@ const {
   serverTimestamp,
   setDoc,
   setLogLevel,
+  startAfter,
   updateDoc,
   where,
 } = require('firebase/firestore');
@@ -76,6 +79,31 @@ function pending(sender, recipient) {
 
 function outcome(status, fields = {}) {
   return { status, updatedAt: serverTimestamp(), ...fields };
+}
+
+function messages(db) {
+  return collection(invitation(db, alice, teacher), 'messages');
+}
+
+function history(db, pageSize = 50) {
+  return query(
+    messages(db),
+    orderBy('createdAt', 'desc'),
+    orderBy(documentId(), 'desc'),
+    limit(pageSize),
+  );
+}
+
+function textMessage(sender, text = 'Hello!') {
+  return { senderId: sender.uid, text, createdAt: serverTimestamp() };
+}
+
+async function acceptInvitation(aliceDb, teacherDb) {
+  await setDoc(invitation(aliceDb, alice, teacher), pending(alice, teacher));
+  await updateDoc(
+    invitation(teacherDb, alice, teacher),
+    outcome('accepted', { recipientName: teacher.name }),
+  );
 }
 
 before(async () => {
@@ -234,4 +262,115 @@ test('an existing Google account cannot switch its school through a profile upda
   const profile = doc(auth.firestore(), 'users', teacher.uid);
   await assertSucceeds(updateDoc(profile, { name: 'Taylor Updated', updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(profile, { schoolId: otherSchool }));
+});
+
+test('messages become readable and writable only when the recipient accepts', async () => {
+  const aliceDb = as(alice);
+  const teacherDb = as(teacher);
+  const id = 'alice:aaaaaaaaaaaaaaaaaaaa';
+  const aliceMessage = doc(messages(aliceDb), id);
+  const teacherMessage = doc(messages(teacherDb), id);
+
+  await assertFails(getDocs(history(aliceDb)));
+  await assertFails(setDoc(aliceMessage, textMessage(alice)));
+  await assertSucceeds(setDoc(invitation(aliceDb, alice, teacher), pending(alice, teacher)));
+  await assertFails(getDoc(aliceMessage));
+  await assertFails(getDocs(history(teacherDb)));
+  await assertFails(setDoc(aliceMessage, textMessage(alice)));
+
+  await assertSucceeds(updateDoc(
+    invitation(teacherDb, alice, teacher),
+    outcome('accepted', { recipientName: teacher.name }),
+  ));
+  const received = new Promise((resolve, reject) => {
+    const stop = onSnapshot(history(teacherDb), (snapshot) => {
+      if (snapshot.metadata.fromCache || snapshot.empty) return;
+      stop();
+      resolve(snapshot.docs[0].data().text);
+    }, reject);
+  });
+  await assertSucceeds(setDoc(aliceMessage, textMessage(alice, 'First message')));
+  assert.equal(await received, 'First message');
+  assert.equal((await assertSucceeds(getDoc(teacherMessage))).data().senderId, alice.uid);
+
+  await assertFails(getDocs(messages(aliceDb)));
+  await assertFails(getDocs(history(aliceDb, 51)));
+  for (const strangerDb of [
+    as(peer),
+    as(outsider),
+    environment.unauthenticatedContext().firestore(),
+  ]) {
+    await assertFails(getDoc(doc(messages(strangerDb), id)));
+    await assertFails(getDocs(history(strangerDb)));
+  }
+  await assertFails(setDoc(doc(messages(as(peer)), 'peer:aaaaaaaaaaaaaaaaaaaa'), textMessage(peer)));
+
+  await environment.withSecurityRulesDisabled(async (admin) => {
+    await updateDoc(doc(admin.firestore(), 'users', teacher.uid), { schoolId: otherSchool });
+  });
+  await assertFails(getDoc(aliceMessage));
+  await assertFails(getDocs(history(teacherDb)));
+});
+
+test('accepted participants can send immutable text only as themselves', async () => {
+  const aliceDb = as(alice);
+  const teacherDb = as(teacher);
+  await acceptInvitation(aliceDb, teacherDb);
+  const ref = doc(messages(aliceDb), 'alice:aaaaaaaaaaaaaaaaaaaa');
+
+  await assertFails(setDoc(ref, textMessage(teacher)));
+  await assertFails(setDoc(
+    doc(messages(aliceDb), 'teacher:aaaaaaaaaaaaaaaaaaaa'),
+    textMessage(alice),
+  ));
+  await assertFails(setDoc(doc(messages(aliceDb), 'alice:short'), textMessage(alice)));
+  await assertFails(setDoc(ref, textMessage(alice, '\n \t')));
+  await assertFails(setDoc(ref, textMessage(alice, 'a'.repeat(4001))));
+  await assertFails(setDoc(ref, { ...textMessage(alice), createdAt: new Date(0) }));
+  await assertFails(setDoc(ref, { ...textMessage(alice), imageUrl: 'example' }));
+  await assertSucceeds(setDoc(ref, textMessage(alice, 'Hello\nSecond line')));
+  await assertSucceeds(setDoc(
+    doc(messages(teacherDb), 'teacher:aaaaaaaaaaaaaaaaaaaa'),
+    textMessage(teacher),
+  ));
+  await assertFails(updateDoc(ref, { text: 'Different message' }));
+  await assertFails(deleteDoc(ref));
+  assert.equal((await getDocs(history(aliceDb))).size, 2);
+});
+
+test('transaction retries reuse one message and cursor paging preserves equal timestamps', async () => {
+  const aliceDb = as(alice);
+  const teacherDb = as(teacher);
+  await acceptInvitation(aliceDb, teacherDb);
+  async function sendOnce(db) {
+    const ref = doc(messages(db), 'alice:cccccccccccccccccccc');
+    return runTransaction(db, async (transaction) => {
+      if ((await transaction.get(ref)).exists()) return;
+      transaction.set(ref, textMessage(alice, 'Only once'));
+    });
+  }
+  await Promise.all([sendOnce(aliceDb), sendOnce(as(alice))]);
+  assert.equal((await getDocs(history(teacherDb))).size, 1);
+
+  await environment.withSecurityRulesDisabled(async (admin) => {
+    const db = admin.firestore();
+    const sharedTime = new Date(0);
+    await setDoc(doc(messages(db), 'alice:aaaaaaaaaaaaaaaaaaaa'), {
+      senderId: alice.uid, text: 'Earlier message', createdAt: sharedTime,
+    });
+    await setDoc(doc(messages(db), 'teacher:aaaaaaaaaaaaaaaaaaaa'), {
+      senderId: teacher.uid, text: 'Later by ID', createdAt: sharedTime,
+    });
+  });
+  const latest = await assertSucceeds(getDocs(history(teacherDb, 2)));
+  assert.deepEqual(latest.docs.map((message) => message.data().text), ['Only once', 'Later by ID']);
+  const before = latest.docs.at(-1);
+  const previous = query(
+    history(teacherDb),
+    startAfter(before.data().createdAt, before.id),
+  );
+  assert.deepEqual(
+    (await assertSucceeds(getDocs(previous))).docs.map((message) => message.data().text),
+    ['Earlier message'],
+  );
 });
