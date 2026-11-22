@@ -5,6 +5,57 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function verifiedEmail() {
+      return signedIn() && request.auth.token.email_verified == true
+        && request.auth.token.email is string;
+    }
+
+    function validEmailDomain(domain) {
+      return domain is string && domain.size() <= 253
+        && domain.matches('^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$');
+    }
+
+    function emailAtDomain(email, domain) {
+      return email is string && email.size() <= 254
+        && email.matches('^[^\\s@<>]+@[a-zA-Z0-9.-]+$')
+        && email.split('@')[1].lower() == domain;
+    }
+
+    function canJoinSchool(schoolId) {
+      return verifiedEmail()
+        && ! (schoolId in ['alderline', 'cedarbrook'])
+        && schoolId.matches('^[a-z0-9][a-z0-9-]{0,79}$')
+        && matchesApprovedSchool(schoolId);
+    }
+
+    function matchesApprovedSchool(schoolId) {
+      let school = get(/databases/$(database)/documents/schoolRegistry/$(schoolId)).data;
+      return school.status == 'approved'
+        && validEmailDomain(school.emailDomain)
+        && emailAtDomain(request.auth.token.email, school.emailDomain);
+    }
+
+    function schoolApplicationOk(data) {
+      return data.keys().hasOnly([
+          'schoolName', 'applicantName', 'applicantRole', 'applicantEmail',
+          'contactEmail', 'emailDomain', 'location', 'color',
+          'status', 'submittedAt'
+        ])
+        && data.applicantEmail == request.auth.token.email
+        && data.schoolName is string && data.schoolName.trim().size() >= 2
+        && data.schoolName.size() <= 120
+        && data.applicantName is string && data.applicantName.trim().size() >= 2
+        && data.applicantName.size() <= 80
+        && data.applicantRole is string && data.applicantRole.trim().size() >= 2
+        && data.applicantRole.size() <= 80
+        && data.location is string && data.location.size() <= 120
+        && validEmailDomain(data.emailDomain)
+        && emailAtDomain(data.contactEmail, data.emailDomain)
+        && data.color is string && data.color.matches('^#[A-Fa-f0-9]{6}$')
+        && data.status == 'pending'
+        && data.submittedAt == request.time;
+    }
+
     function schoolProfile(uid) {
       return get(/databases/$(database)/documents/users/$(uid)).data;
     }
@@ -50,17 +101,28 @@ service cloud.firestore {
           'updatedAt'
         ])
         && request.resource.data.email == request.auth.token.email
-        && request.resource.data.schoolId in ['alderline', 'cedarbrook']
-        && (request.auth.token.firebase.sign_in_provider == 'google.com'
-          || request.resource.data.email.matches(
-            '^[^@]+@' + request.resource.data.schoolId + '\\.example$'
-          ))
+        && request.resource.data.schoolId is string
         && request.resource.data.name is string
         && request.resource.data.name.size() >= 2
         && request.resource.data.name.size() <= 60
         && request.resource.data.grade is int
         && request.resource.data.grade >= 9
         && request.resource.data.grade <= 12;
+    }
+
+    // Only the approved public catalog is available before sign-in.
+    match /schoolRegistry/{schoolId} {
+      allow get, list: if resource.data.status == 'approved';
+      allow create, update, delete: if false;
+    }
+
+    match /schoolApplications/{applicantId} {
+      allow get: if signedIn() && request.auth.uid == applicantId;
+      allow create: if verifiedEmail()
+        && request.auth.uid == applicantId
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && schoolApplicationOk(request.resource.data);
+      allow update, delete, list: if false;
     }
 
     match /schools/{schoolId} {
@@ -225,7 +287,8 @@ service cloud.firestore {
       allow read: if signedIn() && request.auth.uid == uid;
       allow create: if signedIn()
         && request.auth.uid == uid
-        && profileOk();
+        && profileOk()
+        && canJoinSchool(request.resource.data.schoolId);
       allow update: if signedIn()
         && request.auth.uid == uid
         && profileOk()

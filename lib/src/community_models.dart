@@ -529,6 +529,7 @@ class CommunityController extends ChangeNotifier {
 }
 
 List<CommunityPost> samplePosts(DemoSchool school) {
+  if (school.isRegistered) return [];
   final now = DateTime.now();
   final people = school.classmates;
   final first = people.first.id;
@@ -601,6 +602,7 @@ List<ChatThread> _recoverPrivateChats(
 }
 
 List<ChatThread> sampleThreads(DemoSchool school, {String? currentName}) {
+  if (school.isRegistered) return [];
   final now = DateTime.now();
   return [
     for (final c in school.conversations)

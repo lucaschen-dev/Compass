@@ -136,6 +136,128 @@ after(async () => {
   await environment?.cleanup();
 });
 
+const approvedSchool = {
+  name: 'Example High School',
+  emailDomain: 'examplehigh.edu',
+  location: 'Example City',
+  color: '#224477',
+  status: 'approved',
+};
+
+test('public school discovery returns only administrator-approved schools', async () => {
+  await environment.withSecurityRulesDisabled(async (admin) => {
+    const db = admin.firestore();
+    await setDoc(doc(db, 'schoolRegistry', 'example-high'), approvedSchool);
+    await setDoc(doc(db, 'schoolRegistry', 'pending-high'), {
+      ...approvedSchool,
+      status: 'pending',
+    });
+  });
+  const visitor = environment.unauthenticatedContext().firestore();
+  const registry = collection(visitor, 'schoolRegistry');
+  const snapshot = await assertSucceeds(getDocs(query(
+    registry, where('status', '==', 'approved'),
+  )));
+  assert.deepEqual(snapshot.docs.map((entry) => entry.id), ['example-high']);
+  await assertSucceeds(getDoc(doc(registry, 'example-high')));
+  await assertFails(getDoc(doc(registry, 'pending-high')));
+  await assertFails(getDocs(registry));
+  await assertFails(setDoc(
+    doc(as(alice), 'schoolRegistry', 'another-school'),
+    approvedSchool,
+  ));
+});
+
+test('school applications remain private, verified, and pending until reviewed', async () => {
+  const applicantEmail = 'applicant@gmail.com';
+  const applicant = environment.authenticatedContext('applicant', {
+    email: applicantEmail,
+    email_verified: true,
+    firebase: { sign_in_provider: 'google.com' },
+  }).firestore();
+  const unverified = environment.authenticatedContext('unverified', {
+    email: applicantEmail,
+    email_verified: false,
+    firebase: { sign_in_provider: 'google.com' },
+  }).firestore();
+  const password = environment.authenticatedContext('password', {
+    email: applicantEmail,
+    email_verified: true,
+    firebase: { sign_in_provider: 'password' },
+  }).firestore();
+  const application = {
+    schoolName: approvedSchool.name,
+    applicantName: 'Example Applicant',
+    applicantRole: 'School administrator',
+    applicantEmail,
+    contactEmail: 'office@examplehigh.edu',
+    emailDomain: approvedSchool.emailDomain,
+    location: approvedSchool.location,
+    color: approvedSchool.color,
+    status: 'pending',
+    submittedAt: serverTimestamp(),
+  };
+  const ref = doc(applicant, 'schoolApplications', 'applicant');
+  await assertSucceeds(getDoc(ref));
+  await assertFails(setDoc(doc(unverified, 'schoolApplications', 'unverified'), application));
+  await assertFails(setDoc(doc(password, 'schoolApplications', 'password'), application));
+  await assertFails(setDoc(doc(applicant, 'schoolApplications', 'other'), application));
+  await assertFails(setDoc(ref, { ...application, applicantEmail: 'someone@gmail.com' }));
+  await assertFails(setDoc(ref, { ...application, contactEmail: 'office@examplehigh.edu.invalid' }));
+  await assertFails(setDoc(ref, { ...application, status: 'approved' }));
+  await assertFails(setDoc(ref, { ...application, reviewEmailSent: true }));
+  await assertSucceeds(setDoc(ref, application));
+  await assertFails(setDoc(ref, application));
+  await assertFails(getDoc(doc(as(alice), 'schoolApplications', 'applicant')));
+  await assertFails(getDocs(collection(applicant, 'schoolApplications')));
+  await assertFails(updateDoc(ref, { status: 'approved' }));
+  await environment.withSecurityRulesDisabled(async (admin) => {
+    await updateDoc(doc(admin.firestore(), 'schoolApplications', 'applicant'), {
+      status: 'approved',
+    });
+  });
+  assert.equal((await assertSucceeds(getDoc(ref))).data().status, 'approved');
+});
+
+test('verified exact domains enroll in approved schools and legacy accounts remain usable', async () => {
+  await environment.withSecurityRulesDisabled(async (admin) => {
+    const db = admin.firestore();
+    await setDoc(doc(db, 'schoolRegistry', 'example-high'), approvedSchool);
+    await setDoc(doc(db, 'schoolRegistry', 'pending-high'), {
+      ...approvedSchool,
+      status: 'pending',
+    });
+    // Even erroneous registry data must not reopen a retired demo school.
+    await setDoc(doc(db, 'schoolRegistry', school), {
+      ...approvedSchool,
+      emailDomain: `${school}.example`,
+    });
+  });
+  function candidate(candidateId, address, verified, schoolId) {
+    const db = environment.authenticatedContext(candidateId, {
+      email: address,
+      email_verified: verified,
+      firebase: { sign_in_provider: 'google.com' },
+    }).firestore();
+    return setDoc(doc(db, 'users', candidateId), {
+      name: 'Example Candidate',
+      email: address,
+      schoolId,
+      grade: 11,
+    });
+  }
+  await assertSucceeds(candidate('good', 'member@examplehigh.edu', true, 'example-high'));
+  await assertFails(candidate('unverified', 'member@examplehigh.edu', false, 'example-high'));
+  await assertFails(candidate('outsider-new', 'member@examplehigh.edu.invalid', true, 'example-high'));
+  await assertFails(candidate('subdomain', 'member@staff.examplehigh.edu', true, 'example-high'));
+  await assertFails(candidate('pending', 'member@examplehigh.edu', true, 'pending-high'));
+  await assertFails(candidate('legacy-new', `member@${school}.example`, true, school));
+  const legacy = doc(as(alice), 'users', alice.uid);
+  await assertSucceeds(getDoc(legacy));
+  await assertSucceeds(updateDoc(legacy, { name: 'Alice Updated' }));
+  await assertFails(updateDoc(legacy, { schoolId: 'example-high' }));
+});
+
 test('posts keep validated school attribution and omit author names when anonymous', async () => {
   const path = ['schools', school, 'posts', 'author-attribution'];
   const post = doc(as(alice), ...path);

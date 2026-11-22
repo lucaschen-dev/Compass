@@ -1,3 +1,4 @@
+import 'dart:math' show min;
 import 'dart:ui' show lerpDouble;
 
 import 'package:material_ui/material_ui.dart';
@@ -72,13 +73,17 @@ class SchoolArrivalBrand extends StatelessWidget {
                   children: [
                     SchoolMark(school: school, size: lerpDouble(32, 21, move)!),
                     const SizedBox(width: 6),
-                    Text(
-                      shortSchoolName(school),
-                      style: TextStyle(
-                        fontSize: schoolFontSize,
-                        fontWeight: FontWeight.w400,
-                        fontVariations: const [FontVariation('wght', 350)],
-                        letterSpacing: -.6,
+                    Flexible(
+                      child: Text(
+                        shortSchoolName(school),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: schoolFontSize,
+                          fontWeight: FontWeight.w400,
+                          fontVariations: const [FontVariation('wght', 350)],
+                          letterSpacing: -.6,
+                        ),
                       ),
                     ),
                   ],
@@ -104,8 +109,18 @@ class _BrandLayout extends MultiChildLayoutDelegate {
     final constraints = BoxConstraints.loose(size);
     final compass = layoutChild(_BrandPart.compass, constraints);
     final separator = layoutChild(_BrandPart.separator, constraints);
-    final school = layoutChild(_BrandPart.school, constraints);
     const gap = 8.0;
+    // Leave space for the toolbar's leading profile button on compact screens.
+    const profileButtonWidth = 64.0;
+    final toolbarSpace =
+        2 * profileButtonWidth + compass.width + separator.width + gap * 2;
+    final schoolWidth = (size.width - lerpDouble(32, toolbarSpace, move)!)
+        .clamp(min(40.0, size.width), size.width)
+        .toDouble();
+    final school = layoutChild(
+      _BrandPart.school,
+      constraints.copyWith(maxWidth: schoolWidth),
+    );
     final rowWidth = compass.width + school.width + separator.width + gap * 2;
     final rowLeft = (size.width - rowWidth) / 2;
     final introCenterY = size.height * .37;

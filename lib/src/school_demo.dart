@@ -81,6 +81,8 @@ class DemoSchool {
     this.ucRequirements = ucAdmissionRequirements,
     this.clubs = const [],
     this.events = const [],
+    this.emailDomain,
+    this.brandColor,
   });
 
   final String id;
@@ -97,6 +99,9 @@ class DemoSchool {
   final List<DemoCreditRequirement> ucRequirements;
   final List<DemoActivity> clubs;
   final List<DemoActivity> events;
+  final String? emailDomain;
+  final int? brandColor;
+  bool get isRegistered => emailDomain != null;
 
   DemoPerson classmate(String id) =>
       classmates.firstWhere((person) => person.id == id);

@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'app_ui.dart';
 import 'live_calendar_service.dart';
 import 'school_calendar_data.dart';
+import 'school_demo.dart';
 
 enum CalendarView { month, week, day }
 
@@ -753,7 +754,7 @@ class _SchoolCalendarCardState extends State<SchoolCalendarCard> {
               tooltip: 'Calendar options',
               onSelected: (value) async {
                 if (value == 'import') _import();
-                if (value == 'samples') {
+                if (value == 'reset') {
                   try {
                     await widget.onSaveCalendar(null);
                   } catch (_) {
@@ -783,9 +784,13 @@ class _SchoolCalendarCardState extends State<SchoolCalendarCard> {
                   child: Text('Import calendar'),
                 ),
                 if (widget.calendar != null)
-                  const PopupMenuItem(
-                    value: 'samples',
-                    child: Text('Use sample calendar'),
+                  PopupMenuItem(
+                    value: 'reset',
+                    child: Text(
+                      demoSchools.any((school) => school.id == widget.schoolId)
+                          ? 'Use sample calendar'
+                          : 'Remove imported calendar',
+                    ),
                   ),
                 if (widget.calendar?.subscriptionUrl != null)
                   const PopupMenuItem(

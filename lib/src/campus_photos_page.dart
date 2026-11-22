@@ -118,19 +118,21 @@ class _CampusPhotosPageState extends State<CampusPhotosPage> {
                 ],
               ),
           ],
-          const _PhotoSectionTitle('Example albums'),
-          const _PhotoAlbumCard(
-            title: 'A morning on campus',
-            attribution: 'Student Council · Example',
-            caption: 'The courtyard before the first bell.',
-            photos: [_AlbumPhoto.asset('assets/campus_photos/courtyard.jpg')],
-          ),
-          const _PhotoAlbumCard(
-            title: 'From the photo walk',
-            attribution: 'Photography Club · Example',
-            caption: 'Back in the studio to pick our favorite shots.',
-            photos: [_AlbumPhoto.asset('assets/campus_photos/studio.jpg')],
-          ),
+          if (!widget.community.school.isRegistered) ...[
+            const _PhotoSectionTitle('Example albums'),
+            const _PhotoAlbumCard(
+              title: 'A morning on campus',
+              attribution: 'Student Council · Example',
+              caption: 'The courtyard before the first bell.',
+              photos: [_AlbumPhoto.asset('assets/campus_photos/courtyard.jpg')],
+            ),
+            const _PhotoAlbumCard(
+              title: 'From the photo walk',
+              attribution: 'Photography Club · Example',
+              caption: 'Back in the studio to pick our favorite shots.',
+              photos: [_AlbumPhoto.asset('assets/campus_photos/studio.jpg')],
+            ),
+          ],
         ];
         return Center(
           child: ConstrainedBox(

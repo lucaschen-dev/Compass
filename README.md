@@ -1,11 +1,11 @@
 # Compass
 
-Compass is a Flutter school community demo for Alderline and Cedarbrook. The hosted preview is available at [Compass](https://compass-lucas.lucasinus.chatgpt.site). The Site is private to its owner and uses ChatGPT sign-in at the hosting boundary.
+Compass is a Flutter school community app. The hosted preview is available at [Compass](https://compass-lucas.lucasinus.chatgpt.site). The Site is private to its owner and uses ChatGPT sign-in at the hosting boundary.
 
 ## Experience
 
-- A minimal Compass welcome screen, a centered **Find Your School** button, and a searchable alphabetical school list.
-- Firebase Auth supports **Continue with Google** and school-specific email/password sign-in. New accounts choose a demo school and complete name and grade onboarding. Sessions survive refresh.
+- The welcome screen has a subtle wave background and a searchable **Find Your School** list of approved schools. **Register** opens the private school application. Accepted schools use their chosen school color.
+- Learners join approved schools through a verified Google account with their school email and complete name and grade onboarding. **Sign in** also restores existing school accounts with Google or email/password. Sessions survive refresh.
 - A school arrival animation fades in Compass and the school mark, then moves both into the Home header. The same brand elements remain mounted in the header, with stable type and color throughout the movement. Reduced-motion preferences are respected.
 - Four destinations: **Home**, **Guide**, **Chat**, and **Courses**. Desktop navigation highlights the entire icon-and-label row. The personal center is at the upper left. Appearance settings live inside the personal center.
 - Home carries Latest and For you feeds, six post categories, category/subtag filters, keyword search, topic recommendations, comments, likes, saved posts, anonymous posts, targeted questions, priorities, gallery posts, and composer drafts. For example, follow **Clubs → Badminton** to recommend badminton posts. Existing interest/time preferences still recommend sample peers, clubs, and events.
@@ -19,9 +19,11 @@ Compass is a Flutter school community demo for Alderline and Cedarbrook. The hos
 - The local preview still includes sample direct and group conversations, swipe-to-reply, reactions, drafts, and local photo attachments.
 - Courses provides **Month**, **Week**, and **Day** views, day agendas, calendar details, local ICS import, and folded **Graduation Requirements**. The existing manual requirement calculations are preserved.
 
-## Email service status
+## School registration and email
 
-Firebase Auth manages sign-in. **Send setup email** and **Send reset email** report that email delivery is unavailable. The two fictional schools use fixed `alderline.example` and `cedarbrook.example` suffixes for email/password. Google accounts can choose a fictional school during onboarding.
+The two former demo schools are retired from discovery and closed to new enrollment. Existing members can still sign in and access their school data.
+
+Applications are saved in Firebase pending administrator review. The mail function sends a review notification when the project has configured an email provider and reviewer address. [School registration and review setup](docs/school-registration.md)
 
 A real school rollout requires verified membership, server-managed publisher roles, and a process for handling reported content and photos.
 

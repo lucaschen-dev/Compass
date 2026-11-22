@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,9 +15,11 @@ import 'src/school_auth_page.dart';
 import 'src/preview_shell.dart';
 import 'src/preview_theme.dart';
 import 'src/data/firestore_repositories.dart';
+import 'src/data/school_registry.dart';
 import 'src/data/sync_codec.dart';
 import 'src/data/user_state.dart';
 import 'src/demo_activities.dart';
+import 'src/existing_account_sign_in.dart';
 import 'src/firebase/compass_remote.dart';
 import 'src/firebase/compass_scope.dart';
 import 'src/firebase/firebase_accounts.dart';
@@ -25,6 +28,7 @@ import 'src/firebase/firebase_test_env.dart';
 import 'src/recommendations.dart';
 import 'src/school_calendar_data.dart';
 import 'src/school_demo.dart';
+import 'src/school_registration_page.dart';
 
 const _selectedSchoolKey = 'compass.preview.selectedSchool';
 
@@ -46,6 +50,30 @@ Iterable<String> _requirementIdsFor(DemoSchool school) => {
   for (final requirement in school.graduationRequirements) requirement.id,
   for (final requirement in school.ucRequirements) requirement.id,
 };
+
+DemoSchool _schoolFromRegistry(RegisteredSchool school) => DemoSchool(
+  id: school.id,
+  name: school.name,
+  location: school.location,
+  initials: school.name.trim().split(RegExp(r'\s+')).take(2)
+      .map((word) => String.fromCharCode(word.runes.first)).join().toUpperCase(),
+  emailDomain: school.emailDomain,
+  brandColor: int.tryParse(school.color.replaceFirst('#', ''), radix: 16),
+  student: const DemoPerson(
+    id: 'me',
+    name: 'Student',
+    grade: 9,
+    bio: '',
+    interests: [],
+  ),
+  classmates: const [],
+  announcements: const [],
+  conversations: const [],
+  guide: const [],
+  courses: const [],
+  graduationRequirements: const [],
+  ucRequirements: const [],
+);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -79,10 +107,16 @@ Future<void> main() async {
 }
 
 class CompassApp extends StatefulWidget {
-  const CompassApp({super.key, required this.preferences, required this.saved});
+  const CompassApp({
+    super.key,
+    required this.preferences,
+    required this.saved,
+    this.schoolRegistry,
+  });
 
   final SharedPreferencesAsync preferences;
   final Map<String, Object?> saved;
+  final SchoolRegistry? schoolRegistry;
 
   @override
   State<CompassApp> createState() => _CompassAppState();
@@ -96,6 +130,10 @@ class _CompassAppState extends State<CompassApp> {
   final _syncNotice = ValueNotifier<String?>(null);
   CompassRemote? _remote;
   FirestoreGateway? _gateway;
+  late final SchoolRegistry? _registry = widget.schoolRegistry ??
+      (FirebaseBootstrap.isReady
+          ? FirebaseSchoolRegistry(firestore: FirebaseFirestore.instance)
+          : null);
   bool _restoring = false;
   final _communities = <String, CommunityController>{};
   late final Map<String, Object?> _stored;
@@ -119,42 +157,8 @@ class _CompassAppState extends State<CompassApp> {
             .firstOrNull ??
         ThemeMode.system;
     for (final school in demoSchools) {
-      _accountsBySchool[school.id] = _accountsFor(
-        school,
-        saved[accountStoreKey(school)],
-      );
-      final account = _accountsBySchool[school.id]!.find(
-        saved['compass.preview.${school.id}.session'] as String? ?? '',
-      );
-      if (account != null) {
-        final key = accountCalendarKey(school, account);
-        _calendarsByAccount[key] = ImportedSchoolCalendar.fromStorage(
-          saved[key],
-        );
-      }
-      _preferencesBySchool[school.id] = StudentPreferences.fromStorage(
-        saved[studentPreferencesKey(school)],
-        school,
-      );
+      _initializeSchool(school);
       if (saved[_selectedSchoolKey] == school.id) _school = school;
-      _readIdsBySchool[school.id] = {
-        for (final item in school.guide)
-          if ((saved[_cultureReadKey(school, item.id)] ??
-                  (school.id == 'alderline'
-                      ? saved[_legacyCultureReadKey(item.id)]
-                      : null)) ==
-              true)
-            item.id,
-      };
-      _ucInterestBySchool[school.id] = saved[_ucInterestKey(school)] == true;
-      _completedBySchool[school.id] = {
-        for (final id in _requirementIdsFor(school))
-          if (saved[_requirementCompletedKey(school, id)] case final Object raw)
-            if (raw is int)
-              id: raw.clamp(0, 99)
-            else if (raw is num)
-              id: raw.toInt().clamp(0, 99),
-      };
     }
     if (_school case final school?) {
       _account = _accountsBySchool[school.id]!.find(
@@ -166,6 +170,39 @@ class _CompassAppState extends State<CompassApp> {
       _restoring = true;
       unawaited(_restoreRemoteSession());
     }
+  }
+
+  void _initializeSchool(DemoSchool school) {
+    if (_accountsBySchool.containsKey(school.id)) return;
+    final saved = _stored;
+    _accountsBySchool[school.id] =
+        _accountsFor(school, saved[accountStoreKey(school)]);
+    final account = _accountsBySchool[school.id]!.find(
+      saved['compass.preview.${school.id}.session'] as String? ?? '',
+    );
+    if (account != null) {
+      final key = accountCalendarKey(school, account);
+      _calendarsByAccount[key] = ImportedSchoolCalendar.fromStorage(saved[key]);
+    }
+    _preferencesBySchool[school.id] = StudentPreferences.fromStorage(
+      saved[studentPreferencesKey(school)],
+      school,
+    );
+    _readIdsBySchool[school.id] = {
+      for (final item in school.guide)
+        if ((saved[_cultureReadKey(school, item.id)] ??
+                (school.id == 'alderline'
+                    ? saved[_legacyCultureReadKey(item.id)]
+                    : null)) ==
+            true)
+          item.id,
+    };
+    _ucInterestBySchool[school.id] = saved[_ucInterestKey(school)] == true;
+    _completedBySchool[school.id] = {
+      for (final id in _requirementIdsFor(school))
+        if (saved[_requirementCompletedKey(school, id)] case final num value)
+          id: value.toInt().clamp(0, 99),
+    };
   }
 
   SchoolAccounts _accountsFor(DemoSchool school, Object? stored) {
@@ -182,28 +219,91 @@ class _CompassAppState extends State<CompassApp> {
   Future<void> _restoreRemoteSession() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      final email = user?.email;
-      if (user == null || email == null) return;
-      var school = demoSchools
-          .where((item) => email.endsWith('@${schoolEmailDomain(item)}'))
-          .firstOrNull;
-      if (school == null) {
-        final profile = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        final schoolId = profile.data()?['schoolId'] as String?;
-        school = demoSchools.where((item) => item.id == schoolId).firstOrNull;
-      }
-      if (school == null) return;
-      final account = await _accountsBySchool[school.id]!.restore(user.uid);
-      if (account == null || !mounted) return;
-      await _enterSchool(school, account);
+      if (user != null) await _enterExistingAccount(user);
     } catch (error) {
       debugPrint('Could not restore the Compass session: $error');
     } finally {
       if (mounted) setState(() => _restoring = false);
     }
+  }
+
+  Future<bool> _enterExistingAccount(User user) async {
+    final profile = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+    final schoolId = profile.data()?['schoolId'] as String?;
+    if (schoolId == null || !mounted) return false;
+    var school = demoSchools.where((item) => item.id == schoolId).firstOrNull;
+    if (school == null) {
+      final registered = await _registry?.getApprovedSchool(schoolId);
+      if (registered == null) return false;
+      school = _schoolFromRegistry(registered);
+    }
+    if (!mounted || FirebaseAuth.instance.currentUser?.uid != user.uid) {
+      return false;
+    }
+    _initializeSchool(school);
+    final account = await _accountsBySchool[school.id]!.restore(user.uid);
+    if (account == null || !mounted) return false;
+    await _enterSchool(school, account);
+    return true;
+  }
+
+  Future<User?> _googleUser() async {
+    final provider = GoogleAuthProvider();
+    final auth = FirebaseAuth.instance;
+    final credential = kIsWeb
+        ? await auth.signInWithPopup(provider)
+        : await auth.signInWithProvider(provider);
+    return credential.user;
+  }
+
+  Future<void> _signInExisting(BuildContext context) async {
+    Future<void> enter(User? user) async {
+      if (user != null && await _enterExistingAccount(user)) return;
+      throw const AccountException(
+        'This account has no school profile. Find your school to join.',
+      );
+    }
+
+    await openExistingAccountSignIn(
+      context,
+      onPassword: (email, password) async {
+        final credential = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(email: email, password: password);
+        await enter(credential.user);
+      },
+      onGoogle: () async => enter(await _googleUser()),
+    );
+  }
+
+  Future<void> _registerSchool(BuildContext context) async {
+    final auth = FirebaseAuth.instance;
+    final repository = FirebaseSchoolRegistrationRepository(
+      firestore: FirebaseFirestore.instance,
+      auth: auth,
+    );
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => SchoolRegistrationPage(
+          loadApplication: () async {
+            if (auth.currentUser == null) return null;
+            return repository.loadMyApplication();
+          },
+          submit: (draft) async {
+            final user = auth.currentUser;
+            final token = await user?.getIdTokenResult();
+            if (user == null ||
+                !user.emailVerified ||
+                token?.signInProvider != 'google.com') {
+              await _googleUser();
+            }
+            return repository.submitApplication(draft);
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -386,11 +486,15 @@ class _CompassAppState extends State<CompassApp> {
     try {
       final school = await Navigator.of(context).push<DemoSchool>(
         MaterialPageRoute(
-          builder: (_) => _SchoolPicker(currentSchool: _school),
+          builder: (_) => _SchoolPicker(
+            loadSchools: _loadSchools,
+            production: _registry != null || !isFlutterTest,
+          ),
         ),
       );
       if (!mounted || school == null) return;
       if (!context.mounted) return;
+      _initializeSchool(school);
       final existing = _accountsBySchool[school.id]!.find(
         _stored['compass.preview.${school.id}.session'] as String? ?? '',
       );
@@ -417,6 +521,12 @@ class _CompassAppState extends State<CompassApp> {
     } finally {
       _choosingSchool = false;
     }
+  }
+
+  Future<List<DemoSchool>> _loadSchools() async {
+    final registry = _registry;
+    if (registry == null) return isFlutterTest ? demoSchools : const [];
+    return (await registry.listApprovedSchools()).map(_schoolFromRegistry).toList();
   }
 
   Future<void> _setFlag(String key, bool value, VoidCallback update) async {
@@ -604,6 +714,12 @@ class _CompassAppState extends State<CompassApp> {
               if (school == null || account == null) {
                 return CompassWelcome(
                   onFindSchool: () => _chooseSchool(context),
+                  onRegisterSchool: FirebaseBootstrap.isReady
+                      ? () => _registerSchool(context)
+                      : null,
+                  onSignIn: FirebaseBootstrap.isReady
+                      ? () => _signInExisting(context)
+                      : null,
                 );
               }
               return CompassScope(
@@ -642,30 +758,57 @@ class _CompassAppState extends State<CompassApp> {
 }
 
 class _SchoolPicker extends StatefulWidget {
-  const _SchoolPicker({required this.currentSchool});
-  final DemoSchool? currentSchool;
+  const _SchoolPicker({required this.loadSchools, required this.production});
+  final Future<List<DemoSchool>> Function() loadSchools;
+  final bool production;
   @override
   State<_SchoolPicker> createState() => _SchoolPickerState();
 }
 
 class _SchoolPickerState extends State<_SchoolPicker> {
   String _query = '';
+  late Future<List<DemoSchool>> _schools = widget.loadSchools();
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(),
+    body: SafeArea(
+      top: false,
+      child: FutureBuilder<List<DemoSchool>>(
+        future: _schools,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return ContentColumn(
+              maxWidth: 560,
+              children: [
+                const Text('Could not load schools.'),
+                TextButton(
+                  onPressed: () => setState(() => _schools = widget.loadSchools()),
+                  child: const Text('Try again'),
+                ),
+              ],
+            );
+          }
+          return _catalog(context, snapshot.data ?? const []);
+        },
+      ),
+    ),
+  );
+
+  Widget _catalog(BuildContext context, List<DemoSchool> schools) {
     final results =
-        demoSchools
+        schools
             .where(
               (school) => '${school.name} ${school.location}'
                   .toLowerCase()
                   .contains(_query),
             )
             .toList()
-          ..sort((a, b) => a.name.compareTo(b.name));
-    return Scaffold(
-      appBar: AppBar(),
-      body: SafeArea(
-        top: false,
-        child: ContentColumn(
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return ContentColumn(
           maxWidth: 560,
           children: [
             Text(
@@ -682,7 +825,10 @@ class _SchoolPickerState extends State<_SchoolPicker> {
                   setState(() => _query = value.trim().toLowerCase()),
             ),
             const SizedBox(height: 32),
-            if (results.isEmpty) const Text('No schools found.'),
+            if (results.isEmpty)
+              Text(widget.production && schools.isEmpty
+                  ? 'No approved schools yet.'
+                  : 'No schools found.'),
             for (var i = 0; i < results.length; i++) ...[
               if (i == 0 || results[i].name[0] != results[i - 1].name[0])
                 Padding(
@@ -699,7 +845,7 @@ class _SchoolPickerState extends State<_SchoolPicker> {
                 contentPadding: const EdgeInsets.symmetric(vertical: 12),
                 leading: SchoolMark(school: results[i], size: 42),
                 title: Text(
-                  shortSchoolName(results[i]),
+                  results[i].isRegistered ? results[i].name : shortSchoolName(results[i]),
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 trailing: const Icon(Icons.chevron_right),
@@ -707,8 +853,6 @@ class _SchoolPickerState extends State<_SchoolPicker> {
               ),
             ],
           ],
-        ),
-      ),
     );
   }
 }

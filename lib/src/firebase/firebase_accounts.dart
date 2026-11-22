@@ -97,8 +97,9 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
   @override
   LocalAccount? find(String sessionKey) {
     final cached = _memory[sessionKey];
-    if (cached == null) return null;
-    if (!cached.email.endsWith('@${schoolEmailDomain(school)}')) return null;
+    final user = auth.currentUser;
+    if (cached == null || user == null || cached.uid != user.uid) return null;
+    if (school.isRegistered && !_verifiedSchoolEmail(user)) return null;
     return cached;
   }
 
@@ -106,8 +107,10 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
   Future<LocalAccount?> restore(String sessionKey) async {
     final user = auth.currentUser;
     if (user == null || user.email == null) return null;
+    if (school.isRegistered && !_verifiedSchoolEmail(user)) return null;
     try {
       final doc = await firestore.collection('users').doc(user.uid).get();
+      if (auth.currentUser?.uid != user.uid) return null;
       final data = doc.data();
       if (data != null) {
         final account = _accountFrom(user, data);
@@ -137,12 +140,14 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
       final data = doc.data();
       if (data == null) {
         throw const AccountException(
-          'This account has no Compass profile. Use First login.',
+          'This account has no Compass school profile. Use Google to join an approved school.',
         );
       }
       final account = _accountFrom(user, data);
       if (account == null) {
-        throw const AccountException('This email belongs to a different school.');
+        throw const AccountException(
+          'This email belongs to a different school.',
+        );
       }
       await _remember(account);
       return account;
@@ -163,50 +168,11 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
     required String password,
     required String name,
     required int grade,
-  }) async {
-    final email = emailFor(username);
-    validateNewAccount(password: password, name: name, grade: grade);
-    User? user;
-    try {
-      final credential = await auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      user = credential.user;
-      if (user == null) {
-        throw const AccountException(
-          'Could not save your account. Please try again.',
-        );
-      }
-      final account = LocalAccount(
-        email: email,
-        name: name.trim(),
-        grade: grade,
-        uid: user.uid,
-      );
-      await user.updateDisplayName(account.name);
-      await firestore.collection('users').doc(user.uid).set({
-        'email': account.email,
-        'name': account.name,
-        'grade': account.grade,
-        'schoolId': school.id,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      await _remember(account);
-      return account;
-    } on AccountException {
-      await _discard(user);
-      rethrow;
-    } on FirebaseAuthException catch (error) {
-      await _discard(user);
-      throw _authError(error, creating: true);
-    } on FirebaseException {
-      await _discard(user);
-      throw const AccountException(
-        'Could not save your account. Please try again.',
-      );
-    }
-  }
+  }) async => throw AccountException(
+    school.isRegistered
+        ? 'Choose Continue with Google and use your verified school email.'
+        : 'This school is closed to new accounts.',
+  );
 
   @override
   Future<LocalAccount?> signInWithGoogle() async {
@@ -222,10 +188,24 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
           'Google did not share an email address. Try another account.',
         );
       }
-      _googleName = user.displayName;
+      if (school.isRegistered && !_verifiedSchoolEmail(user)) {
+        await auth.signOut();
+        throw AccountException(
+          'Sign in with a verified @${schoolEmailDomain(school)} account.',
+        );
+      }
       final doc = await firestore.collection('users').doc(user.uid).get();
       final data = doc.data();
-      if (data == null) return null;
+      if (data == null) {
+        if (!school.isRegistered) {
+          await auth.signOut();
+          throw const AccountException(
+            'This school is closed to new accounts.',
+          );
+        }
+        _googleName = user.displayName;
+        return null;
+      }
       final account = _accountFrom(user, data);
       if (account == null) {
         await auth.signOut();
@@ -255,6 +235,14 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
     final email = user?.email;
     if (user == null || email == null) {
       throw const AccountException('Google sign-in is not available.');
+    }
+    if (!school.isRegistered) {
+      throw const AccountException('This school is closed to new accounts.');
+    }
+    if (!_verifiedSchoolEmail(user)) {
+      throw AccountException(
+        'Sign in with a verified @${schoolEmailDomain(school)} account.',
+      );
     }
     if (name.trim().length < 2 || name.trim().length > 60) {
       throw const AccountException('Enter your full name (2–60 characters).');
@@ -292,9 +280,14 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
     final schoolId = data['schoolId'] as String? ?? '';
     final email = data['email'] as String? ?? user.email ?? '';
     if (schoolId != school.id) return null;
-    final schoolEmail = email.endsWith('@${schoolEmailDomain(school)}');
-    final google = user.providerData.any((info) => info.providerId == 'google.com');
-    if (!schoolEmail && !google) return null;
+    if (school.isRegistered) {
+      if (!_verifiedSchoolEmail(user) || !_isSchoolEmail(email)) return null;
+    } else {
+      final google = user.providerData.any(
+        (info) => info.providerId == 'google.com',
+      );
+      if (!_isSchoolEmail(email) && !google) return null;
+    }
     final grade = data['grade'];
     return LocalAccount(
       email: email,
@@ -302,6 +295,17 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
       grade: grade is num ? grade.toInt().clamp(9, 12) : 11,
       uid: user.uid,
     );
+  }
+
+  bool _verifiedSchoolEmail(User user) =>
+      user.emailVerified && _isSchoolEmail(user.email);
+
+  bool _isSchoolEmail(String? email) {
+    final parts = email?.split('@');
+    return parts != null &&
+        parts.length == 2 &&
+        parts.first.isNotEmpty &&
+        parts.last.toLowerCase() == schoolEmailDomain(school);
   }
 
   Future<void> _remember(LocalAccount account) async {
@@ -323,13 +327,10 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
     if (raw == null) return null;
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
-      if (data['schoolId'] != school.id) return null;
-      final account = LocalAccount(
-        email: data['email'] as String,
-        name: data['name'] as String,
-        grade: (data['grade'] as num).toInt(),
-        uid: uid,
-      );
+      final user = auth.currentUser;
+      if (user == null || user.uid != uid) return null;
+      final account = _accountFrom(user, data);
+      if (account == null) return null;
       _memory[uid] = account;
       _memory[account.email] = account;
       return account;
@@ -337,18 +338,15 @@ class FirebaseSchoolAccounts implements SchoolAccounts {
       return null;
     }
   }
-
-  Future<void> _discard(User? user) async {
-    try {
-      await user?.delete();
-    } catch (_) {}
-  }
 }
 
-AccountException _authError(FirebaseAuthException error, {required bool creating}) {
+AccountException _authError(
+  FirebaseAuthException error, {
+  required bool creating,
+}) {
   switch (error.code) {
     case 'email-already-in-use':
-      return const AccountException('This demo account already exists. Log in.');
+      return const AccountException('This account already exists. Log in.');
     case 'invalid-email':
       return const AccountException('Enter your school email username.');
     case 'wrong-password':

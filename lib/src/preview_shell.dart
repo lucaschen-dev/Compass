@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_ui.dart';
 import 'activity_pages.dart';
+import 'compass_backdrop.dart';
 import 'community_feed.dart';
 import 'community_models.dart';
 import 'community_profile.dart';
@@ -260,7 +261,9 @@ class _PreviewShellState extends State<PreviewShell>
         builder: (context, size) {
           final wide = size.maxWidth >= 820;
           final scaffold = Scaffold(
+            backgroundColor: Colors.transparent,
             appBar: AppBar(
+              backgroundColor: Colors.transparent,
               leadingWidth: 64,
               leading: IconButton(
                 tooltip: 'Personal center',
@@ -337,36 +340,42 @@ class _PreviewShellState extends State<PreviewShell>
               );
               // Keep the same brand elements mounted through the last frame.
               // Only the page behind them fades in; no header replacement.
-              return Stack(
-                children: [
-                  IgnorePointer(
-                    ignoring: phase < 1,
-                    child: ExcludeSemantics(
-                      excluding: phase < 1,
-                      child: child!,
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: ColoredBox(
-                        color: colors.surface.withValues(
-                          alpha: 1 - contentOpacity,
+              return ColoredBox(
+                color: colors.surface,
+                child: CompassBackdrop.school(
+                  schoolColor: widget.school.brandColor,
+                  child: Stack(
+                    children: [
+                      IgnorePointer(
+                        ignoring: phase < 1,
+                        child: ExcludeSemantics(
+                          excluding: phase < 1,
+                          child: child!,
                         ),
                       ),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: SchoolArrivalBrand(
-                        school: widget.school,
-                        phase: phase,
-                        toolbarCenterY:
-                            MediaQuery.paddingOf(context).top +
-                            kToolbarHeight / 2,
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: ColoredBox(
+                            color: colors.surface.withValues(
+                              alpha: 1 - contentOpacity,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: SchoolArrivalBrand(
+                            school: widget.school,
+                            phase: phase,
+                            toolbarCenterY:
+                                MediaQuery.paddingOf(context).top +
+                                kToolbarHeight / 2,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               );
             },
           );

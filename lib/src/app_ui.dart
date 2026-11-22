@@ -5,10 +5,11 @@ import 'dart:ui' as ui;
 import 'package:file_selector/file_selector.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'compass_backdrop.dart';
 import 'school_demo.dart';
 
 String shortSchoolName(DemoSchool school) =>
-    school.name.replaceAll(' High School', '');
+    school.isRegistered ? school.name : school.name.replaceAll(' High School', '');
 
 class CompassMark extends StatelessWidget {
   const CompassMark({super.key, this.size = 36});
@@ -82,22 +83,30 @@ class SchoolMark extends StatelessWidget {
   final DemoSchool school;
   final double size;
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: '${school.name} logo',
-    child: Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(size * .3),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final accent = compassSchoolAccent(theme, school.brandColor);
+    final mark = switch (school.id) {
+      'alderline' => Icons.forest_outlined,
+      'cedarbrook' => Icons.water_outlined,
+      _ => Icons.school_outlined,
+    };
+    return Semantics(
+      label: '${school.name} logo',
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: school.brandColor == null
+              ? colors.primaryContainer
+              : Color.alphaBlend(accent.withValues(alpha: .14), colors.surface),
+          borderRadius: BorderRadius.circular(size * .3),
+        ),
+        child: Icon(mark, size: size * .68, color: accent),
       ),
-      child: Icon(
-        school.id == 'alderline' ? Icons.forest_outlined : Icons.water_outlined,
-        size: size * .68,
-        color: Theme.of(context).colorScheme.primary,
-      ),
-    ),
-  );
+    );
+  }
 }
 
 class StudentAvatar extends StatelessWidget {

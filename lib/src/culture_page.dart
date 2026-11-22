@@ -127,6 +127,8 @@ class _GuideSectionState extends State<_GuideSection> {
         children: [
           if (widget.title == 'Course catalog')
             CourseCatalog(school: widget.school, showTitle: false)
+          else if (widget.title == 'Grade' && widget.school.isRegistered)
+            const Text('No grade information yet.')
           else if (widget.title == 'Grade')
             for (final grade in [9, 10, 11, 12])
               ExpansionTile(
@@ -144,6 +146,9 @@ class _GuideSectionState extends State<_GuideSection> {
                   ),
                 ],
               )
+          else if (widget.title == 'Faculty & classrooms' &&
+              widget.school.isRegistered)
+            const Text('No faculty listed yet.')
           else if (widget.title == 'Faculty & classrooms') ...[
             Text(
               'Faculty directory',
@@ -188,7 +193,9 @@ class _GuideSectionState extends State<_GuideSection> {
               ),
               const Divider(),
             ],
-          ] else
+          ] else if (widget.school.isRegistered && notes.isEmpty)
+            const Text('No information has been added to this section yet.')
+          else
             for (final note in notes) ...[
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 22),

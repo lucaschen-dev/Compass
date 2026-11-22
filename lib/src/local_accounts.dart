@@ -8,7 +8,8 @@ import 'school_demo.dart';
 
 String accountStoreKey(DemoSchool school) =>
     'compass.preview.${school.id}.accounts';
-String schoolEmailDomain(DemoSchool school) => '${school.id}.example';
+String schoolEmailDomain(DemoSchool school) =>
+    school.emailDomain ?? '${school.id}.example';
 
 /// Sign-in used by the school page. Tests keep [LocalAccounts]; the app uses
 /// Firebase Auth when FlutterFire is configured.

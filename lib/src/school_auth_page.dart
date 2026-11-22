@@ -457,10 +457,11 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                                   onPressed: () => _go(_AuthStep.forgot),
                                   child: const Text('Forgot password'),
                                 ),
-                                TextButton(
-                                  onPressed: () => _go(_AuthStep.first),
-                                  child: const Text('First login'),
-                                ),
+                                if (!widget.school.isRegistered)
+                                  TextButton(
+                                    onPressed: () => _go(_AuthStep.first),
+                                    child: const Text('First login'),
+                                  ),
                               ],
                             ),
                           if (_step == _AuthStep.password)

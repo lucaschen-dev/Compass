@@ -76,4 +76,6 @@ ui-emulator-*.log
 /server/node_modules/
 /server/.wrangler/
 /server/.vite/
+/functions/node_modules/
+/functions/.secret.local
 /dist/
