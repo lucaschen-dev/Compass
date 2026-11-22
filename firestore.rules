@@ -59,43 +59,36 @@ service cloud.firestore {
           && request.resource.data.authorId == request.auth.uid
           && noSecrets(request.resource.data);
         allow update: if belongsToSchool(schoolId)
-          && request.resource.data.authorId == resource.data.authorId
+          && resource.data.authorId == request.auth.uid
+          && request.resource.data.authorId == request.auth.uid
           && noSecrets(request.resource.data);
         allow delete: if belongsToSchool(schoolId)
           && resource.data.authorId == request.auth.uid;
 
         match /replies/{replyId} {
-          allow read: if belongsToSchool(schoolId);
+          function parentPost() {
+            return /databases/$(database)/documents/schools/$(schoolId)/posts/$(postId);
+          }
+
+          allow read: if belongsToSchool(schoolId) && exists(parentPost());
           allow create: if belongsToSchool(schoolId)
+            && exists(parentPost())
             && request.resource.data.authorId == request.auth.uid
             && noSecrets(request.resource.data);
           allow update: if belongsToSchool(schoolId)
+            && exists(parentPost())
             && resource.data.authorId == request.auth.uid
             && request.resource.data.authorId == request.auth.uid
             && noSecrets(request.resource.data);
           allow delete: if belongsToSchool(schoolId)
-            && resource.data.authorId == request.auth.uid;
+            && (resource.data.authorId == request.auth.uid
+              || get(parentPost()).data.authorId == request.auth.uid);
         }
       }
 
-      match /threads/{threadId} {
-        allow read: if belongsToSchool(schoolId);
-        allow create, update: if belongsToSchool(schoolId)
-          && noSecrets(request.resource.data);
-        allow delete: if false;
-
-        match /messages/{messageId} {
-          allow read: if belongsToSchool(schoolId);
-          allow create: if belongsToSchool(schoolId)
-            && request.resource.data.senderId == request.auth.uid
-            && noSecrets(request.resource.data);
-          allow update: if belongsToSchool(schoolId)
-            && resource.data.senderId == request.auth.uid
-            && request.resource.data.senderId == request.auth.uid
-            && noSecrets(request.resource.data);
-          allow delete: if belongsToSchool(schoolId)
-            && resource.data.senderId == request.auth.uid;
-        }
+      // Older clients used shared demo IDs that do not identify participants.
+      match /threads/{legacyPath=**} {
+        allow read, write: if false;
       }
     }
 
@@ -112,6 +105,29 @@ service cloud.firestore {
           && request.auth.uid == uid
           && noSecrets(request.resource.data);
         allow delete: if false;
+
+        match /threads/{threadId} {
+          function ownsChat() {
+            return belongsToSchool(schoolId) && request.auth.uid == uid;
+          }
+
+          allow read: if ownsChat();
+          allow create, update: if ownsChat()
+            && noSecrets(request.resource.data);
+          allow delete: if false;
+
+          match /messages/{messageId} {
+            allow read: if ownsChat();
+            allow create: if ownsChat()
+              && request.resource.data.senderId == uid
+              && noSecrets(request.resource.data);
+            allow update: if ownsChat()
+              && resource.data.senderId == uid
+              && request.resource.data.senderId == uid
+              && noSecrets(request.resource.data);
+            allow delete: if ownsChat() && resource.data.senderId == uid;
+          }
+        }
       }
     }
   }
