@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,6 +13,7 @@ import 'src/calendar_storage.dart';
 import 'src/app_ui.dart';
 import 'src/local_accounts.dart';
 import 'src/community_models.dart';
+import 'src/mac_window_layout.dart';
 import 'src/school_auth_page.dart';
 import 'src/preview_shell.dart';
 import 'src/preview_theme.dart';
@@ -823,6 +825,9 @@ class _CompassAppState extends State<CompassApp> {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Compass · Local schools',
     debugShowCheckedModeBanner: false,
+    builder: !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
+        ? macWindowLayout
+        : null,
     theme: localCompassTheme(Brightness.light),
     darkTheme: localCompassTheme(Brightness.dark),
     themeMode: _themeMode,
