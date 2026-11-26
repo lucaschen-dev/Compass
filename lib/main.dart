@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'src/account_deletion_ui.dart';
 import 'src/compass_welcome.dart';
 import 'src/calendar_storage.dart';
 import 'src/app_ui.dart';
@@ -20,6 +21,8 @@ import 'src/data/sync_codec.dart';
 import 'src/data/user_state.dart';
 import 'src/demo_activities.dart';
 import 'src/existing_account_sign_in.dart';
+import 'src/live_calendar_service.dart';
+import 'src/firebase/account_deletion.dart';
 import 'src/firebase/compass_remote.dart';
 import 'src/firebase/compass_scope.dart';
 import 'src/firebase/firebase_accounts.dart';
@@ -55,8 +58,13 @@ DemoSchool _schoolFromRegistry(RegisteredSchool school) => DemoSchool(
   id: school.id,
   name: school.name,
   location: school.location,
-  initials: school.name.trim().split(RegExp(r'\s+')).take(2)
-      .map((word) => String.fromCharCode(word.runes.first)).join().toUpperCase(),
+  initials: school.name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .take(2)
+      .map((word) => String.fromCharCode(word.runes.first))
+      .join()
+      .toUpperCase(),
   emailDomain: school.emailDomain,
   brandColor: int.tryParse(school.color.replaceFirst('#', ''), radix: 16),
   student: const DemoPerson(
@@ -84,7 +92,9 @@ Future<void> main() async {
     final all = await preferences.getAll();
     saved = {
       for (final entry in all.entries)
-        if (entry.key.startsWith('compass.preview.')) entry.key: entry.value,
+        if (entry.key.startsWith('compass.preview.') ||
+            entry.key == deletionReceiptKey)
+          entry.key: entry.value,
     };
     for (final school in demoSchools) {
       final accounts = LocalAccounts(
@@ -130,7 +140,8 @@ class _CompassAppState extends State<CompassApp> {
   final _syncNotice = ValueNotifier<String?>(null);
   CompassRemote? _remote;
   FirestoreGateway? _gateway;
-  late final SchoolRegistry? _registry = widget.schoolRegistry ??
+  late final SchoolRegistry? _registry =
+      widget.schoolRegistry ??
       (FirebaseBootstrap.isReady
           ? FirebaseSchoolRegistry(firestore: FirebaseFirestore.instance)
           : null);
@@ -175,8 +186,10 @@ class _CompassAppState extends State<CompassApp> {
   void _initializeSchool(DemoSchool school) {
     if (_accountsBySchool.containsKey(school.id)) return;
     final saved = _stored;
-    _accountsBySchool[school.id] =
-        _accountsFor(school, saved[accountStoreKey(school)]);
+    _accountsBySchool[school.id] = _accountsFor(
+      school,
+      saved[accountStoreKey(school)],
+    );
     final account = _accountsBySchool[school.id]!.find(
       saved['compass.preview.${school.id}.session'] as String? ?? '',
     );
@@ -260,6 +273,7 @@ class _CompassAppState extends State<CompassApp> {
   }
 
   Future<void> _signInExisting(BuildContext context) async {
+    final auth = FirebaseAuth.instance;
     Future<void> enter(User? user) async {
       if (user != null && await _enterExistingAccount(user)) return;
       throw const AccountException(
@@ -269,40 +283,87 @@ class _CompassAppState extends State<CompassApp> {
 
     await openExistingAccountSignIn(
       context,
-      onPassword: (email, password) async {
-        final credential = await FirebaseAuth.instance
-            .signInWithEmailAndPassword(email: email, password: password);
-        await enter(credential.user);
-      },
-      onGoogle: () async => enter(await _googleUser()),
+      onPassword: (email, password) async =>
+          enter(await signInToCompassWithPassword(auth, email, password)),
+      onPasswordReset: (email) => sendCompassPasswordReset(auth, email),
+      onGoogle: allowsGoogleSignIn
+          ? () async => enter(await _googleUser())
+          : null,
     );
   }
 
   Future<void> _registerSchool(BuildContext context) async {
     final auth = FirebaseAuth.instance;
+    if (!allowsGoogleSignIn && auth.currentUser?.emailVerified != true) {
+      final verified = await openExistingAccountSignIn(
+        context,
+        onPassword: (email, password) async {
+          await signInToCompassWithPassword(auth, email, password);
+          await verifyCompassEmail(auth);
+        },
+        onCreate: (email, password) => createCompassPasswordAccount(
+          auth,
+          email,
+          password,
+        ),
+        onPasswordReset: (email) => sendCompassPasswordReset(auth, email),
+        onVerify: () async => verifyCompassEmail(auth),
+        onResendVerification: () => resendCompassVerification(auth),
+        pendingAccountActions: _unlinkedAccountActions(context),
+      );
+      if (!verified || !context.mounted) return;
+    }
     final repository = FirebaseSchoolRegistrationRepository(
       firestore: FirebaseFirestore.instance,
       auth: auth,
     );
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => SchoolRegistrationPage(
+        builder: (registrationContext) => SchoolRegistrationPage(
+          initialContactEmail: allowsGoogleSignIn
+              ? null
+              : auth.currentUser?.email,
+          accountActions: _unlinkedAccountActions(registrationContext),
           loadApplication: () async {
             if (auth.currentUser == null) return null;
             return repository.loadMyApplication();
           },
           submit: (draft) async {
-            final user = auth.currentUser;
-            final token = await user?.getIdTokenResult();
-            if (user == null ||
-                !user.emailVerified ||
-                token?.signInProvider != 'google.com') {
-              await _googleUser();
+            if (allowsGoogleSignIn) {
+              final user = auth.currentUser;
+              final token = await user?.getIdTokenResult();
+              if (user == null ||
+                  !user.emailVerified ||
+                  token?.signInProvider != 'google.com') {
+                await _googleUser();
+              }
+            } else if (auth.currentUser?.email?.toLowerCase() !=
+                draft.contactEmail) {
+              throw const SchoolRegistrationException(
+                'Your school contact email must match your Compass account email.',
+              );
             }
             return repository.submitApplication(draft);
           },
         ),
       ),
+    );
+  }
+
+  Widget _unlinkedAccountActions(BuildContext routeContext) {
+    final auth = FirebaseAuth.instance;
+    return StreamBuilder<User?>(
+      stream: auth.authStateChanges(),
+      initialData: auth.currentUser,
+      builder: (context, snapshot) => snapshot.data == null
+          ? const SizedBox.shrink()
+          : AccountDeletionButton(
+              onRequested: (receipt) async {
+                await _rememberDeletionReceipt(receipt);
+                await auth.signOut();
+                if (routeContext.mounted) Navigator.of(routeContext).pop();
+              },
+            ),
     );
   }
 
@@ -342,6 +403,61 @@ class _CompassAppState extends State<CompassApp> {
   Future<void> _setTheme(ThemeMode mode) async {
     await widget.preferences.setString('compass.preview.theme', mode.name);
     if (mounted) setState(() => _themeMode = mode);
+  }
+
+  Future<void> _rememberDeletionReceipt(String receipt) async {
+    await widget.preferences.setString(deletionReceiptKey, receipt);
+    if (mounted) setState(() => _stored[deletionReceiptKey] = receipt);
+  }
+
+  Future<void> _dismissDeletionReceipt() async {
+    await widget.preferences.remove(deletionReceiptKey);
+    if (mounted) setState(() => _stored.remove(deletionReceiptKey));
+  }
+
+  Future<void> _finishDeletionRequest(String receipt) async {
+    final account = _account;
+    final school = _school;
+    await _rememberDeletionReceipt(receipt);
+    await _logout();
+    if (account == null || school == null) return;
+    final prefix = 'compass.preview.${school.id}';
+    final legacyCalendar = schoolCalendarKey(school.id);
+    final legacyOwner = '$legacyCalendar.legacyOwner';
+    final keys = {
+      communityStoreKey(school, account),
+      accountCalendarKey(school, account),
+      calendarPromptKey(school.id, account.email),
+      _friendKey(school, account),
+      if (account.uid case final uid?) 'compass.auth.profile.$uid',
+      if (_stored[legacyOwner] == account.email) ...[
+        legacyOwner,
+        legacyCalendar,
+        calendarFeedKey(school.id),
+      ],
+    };
+    final allKeys = await widget.preferences.getKeys();
+    for (final key in allKeys) {
+      if (key.startsWith('$prefix.culture.read.') ||
+          key.startsWith('$prefix.req.completed.') ||
+          key == studentPreferencesKey(school) ||
+          key == _ucInterestKey(school) ||
+          key.startsWith('compass.sync.${account.uid}.${school.id}.')) {
+        keys.add(key);
+      }
+    }
+    await widget.preferences.clear(allowList: keys);
+    _friendIdsByAccount.remove(_friendKey(school, account));
+    _communities.remove(communityStoreKey(school, account))?.dispose();
+    _calendarsByAccount.remove(accountCalendarKey(school, account));
+    _accountsBySchool.remove(school.id);
+    _preferencesBySchool.remove(school.id);
+    _readIdsBySchool.remove(school.id);
+    _completedBySchool.remove(school.id);
+    _ucInterestBySchool.remove(school.id);
+    for (final key in keys) {
+      _stored.remove(key);
+    }
   }
 
   Future<void> _logout() async {
@@ -502,9 +618,12 @@ class _CompassAppState extends State<CompassApp> {
           existing ??
           await Navigator.of(context).push<LocalAccount>(
             MaterialPageRoute(
-              builder: (_) => SchoolAuthPage(
+              builder: (authContext) => SchoolAuthPage(
                 school: school,
                 accounts: _accountsBySchool[school.id]!,
+                pendingAccountActions: FirebaseBootstrap.isReady
+                    ? _unlinkedAccountActions(authContext)
+                    : null,
               ),
             ),
           );
@@ -526,7 +645,9 @@ class _CompassAppState extends State<CompassApp> {
   Future<List<DemoSchool>> _loadSchools() async {
     final registry = _registry;
     if (registry == null) return isFlutterTest ? demoSchools : const [];
-    return (await registry.listApprovedSchools()).map(_schoolFromRegistry).toList();
+    return (await registry.listApprovedSchools())
+        .map(_schoolFromRegistry)
+        .toList();
   }
 
   Future<void> _setFlag(String key, bool value, VoidCallback update) async {
@@ -712,7 +833,15 @@ class _CompassAppState extends State<CompassApp> {
               final school = _school;
               final account = _account;
               if (school == null || account == null) {
+                final receipt = _stored[deletionReceiptKey] as String?;
                 return CompassWelcome(
+                  deletionStatus: FirebaseBootstrap.isReady && receipt != null
+                      ? DeletionStatus(
+                          key: ValueKey(receipt),
+                          receipt: receipt,
+                          onDismiss: _dismissDeletionReceipt,
+                        )
+                      : null,
                   onFindSchool: () => _chooseSchool(context),
                   onRegisterSchool: FirebaseBootstrap.isReady
                       ? () => _registerSchool(context)
@@ -731,6 +860,9 @@ class _CompassAppState extends State<CompassApp> {
                   themeMode: _themeMode,
                   onChangeTheme: _setTheme,
                   onLogout: _logout,
+                  onRequestDeletion: _remote == null
+                      ? null
+                      : _finishDeletionRequest,
                   community: _community(school, account),
                   accountEmail: account.email,
                   localPreferences: widget.preferences,
@@ -786,7 +918,8 @@ class _SchoolPickerState extends State<_SchoolPicker> {
               children: [
                 const Text('Could not load schools.'),
                 TextButton(
-                  onPressed: () => setState(() => _schools = widget.loadSchools()),
+                  onPressed: () =>
+                      setState(() => _schools = widget.loadSchools()),
                   child: const Text('Try again'),
                 ),
               ],
@@ -807,52 +940,58 @@ class _SchoolPickerState extends State<_SchoolPicker> {
                   .contains(_query),
             )
             .toList()
-          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
     return ContentColumn(
-          maxWidth: 560,
-          children: [
-            Text(
-              'Find your school',
-              style: Theme.of(context).textTheme.headlineLarge,
-            ),
-            const SizedBox(height: 28),
-            TextField(
-              decoration: const InputDecoration(
-                hintText: 'Search schools',
-                prefixIcon: Icon(Icons.search_rounded),
-              ),
-              onChanged: (value) =>
-                  setState(() => _query = value.trim().toLowerCase()),
-            ),
-            const SizedBox(height: 32),
-            if (results.isEmpty)
-              Text(widget.production && schools.isEmpty
-                  ? 'No approved schools yet.'
-                  : 'No schools found.'),
-            for (var i = 0; i < results.length; i++) ...[
-              if (i == 0 || results[i].name[0] != results[i - 1].name[0])
-                Padding(
-                  padding: const EdgeInsets.only(top: 16, bottom: 12),
-                  child: Text(
-                    results[i].name[0],
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
+      maxWidth: 560,
+      children: [
+        Text(
+          'Find your school',
+          style: Theme.of(context).textTheme.headlineLarge,
+        ),
+        const SizedBox(height: 28),
+        TextField(
+          decoration: const InputDecoration(
+            hintText: 'Search schools',
+            prefixIcon: Icon(Icons.search_rounded),
+          ),
+          onChanged: (value) =>
+              setState(() => _query = value.trim().toLowerCase()),
+        ),
+        const SizedBox(height: 32),
+        if (results.isEmpty)
+          Text(
+            widget.production && schools.isEmpty
+                ? 'No approved schools yet.'
+                : 'No schools found.',
+          ),
+        for (var i = 0; i < results.length; i++) ...[
+          if (i == 0 || results[i].name[0] != results[i - 1].name[0])
+            Padding(
+              padding: const EdgeInsets.only(top: 16, bottom: 12),
+              child: Text(
+                results[i].name[0],
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
-              const Divider(),
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                leading: SchoolMark(school: results[i], size: 42),
-                title: Text(
-                  results[i].isRegistered ? results[i].name : shortSchoolName(results[i]),
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.pop(context, results[i]),
               ),
-            ],
-          ],
+            ),
+          const Divider(),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+            leading: SchoolMark(school: results[i], size: 42),
+            title: Text(
+              results[i].isRegistered
+                  ? results[i].name
+                  : shortSchoolName(results[i]),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.pop(context, results[i]),
+          ),
+        ],
+      ],
     );
   }
 }

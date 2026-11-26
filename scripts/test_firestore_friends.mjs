@@ -30,6 +30,7 @@ const {
   startAfter,
   updateDoc,
   where,
+  writeBatch,
 } = require('firebase/firestore');
 
 setLogLevel('silent');
@@ -185,6 +186,17 @@ test('school applications remain private, verified, and pending until reviewed',
     email_verified: true,
     firebase: { sign_in_provider: 'password' },
   }).firestore();
+  const schoolEmail = 'office@examplehigh.edu';
+  const schoolPassword = environment.authenticatedContext('schoolpassword', {
+    email: schoolEmail,
+    email_verified: true,
+    firebase: { sign_in_provider: 'password' },
+  }).firestore();
+  const unverifiedSchoolPassword = environment.authenticatedContext('unverifiedschoolpassword', {
+    email: schoolEmail,
+    email_verified: false,
+    firebase: { sign_in_provider: 'password' },
+  }).firestore();
   const application = {
     schoolName: approvedSchool.name,
     applicantName: 'Example Applicant',
@@ -201,6 +213,11 @@ test('school applications remain private, verified, and pending until reviewed',
   await assertSucceeds(getDoc(ref));
   await assertFails(setDoc(doc(unverified, 'schoolApplications', 'unverified'), application));
   await assertFails(setDoc(doc(password, 'schoolApplications', 'password'), application));
+  const passwordApplication = { ...application, applicantEmail: schoolEmail };
+  const passwordRef = doc(schoolPassword, 'schoolApplications', 'schoolpassword');
+  await assertFails(setDoc(passwordRef, { ...passwordApplication, contactEmail: 'different@examplehigh.edu' }));
+  await assertFails(setDoc(doc(unverifiedSchoolPassword, 'schoolApplications', 'unverifiedschoolpassword'), passwordApplication));
+  await assertSucceeds(setDoc(passwordRef, passwordApplication));
   await assertFails(setDoc(doc(applicant, 'schoolApplications', 'other'), application));
   await assertFails(setDoc(ref, { ...application, applicantEmail: 'someone@gmail.com' }));
   await assertFails(setDoc(ref, { ...application, contactEmail: 'office@examplehigh.edu.invalid' }));
@@ -261,7 +278,7 @@ test('verified exact domains enroll in approved schools and legacy accounts rema
 test('posts keep validated school attribution and omit author names when anonymous', async () => {
   const path = ['schools', school, 'posts', 'author-attribution'];
   const post = doc(as(alice), ...path);
-  const named = { authorId: alice.uid, title: 'School update', anonymous: false };
+  const named = { authorId: alice.uid, title: 'School update', body: '', anonymous: false };
   await assertFails(setDoc(post, { ...named, authorName: teacher.name }));
   await assertFails(setDoc(post, { ...named, anonymous: true, authorName: alice.name }));
   await assertFails(setDoc(post, { ...named, anonymous: true, authorName: null }));
@@ -285,6 +302,8 @@ test('existing replies can gain the authenticated replier name without sharing p
   const teacherDb = as(teacher);
   await assertSucceeds(setDoc(doc(aliceDb, ...path), {
     authorId: alice.uid,
+    title: 'A school post',
+    body: 'Would anyone like to join us?',
     anonymous: true,
   }));
 
@@ -540,4 +559,209 @@ test('transaction retries reuse one message and cursor paging preserves equal ti
     (await assertSucceeds(getDocs(previous))).docs.map((message) => message.data().text),
     ['Earlier message'],
   );
+});
+
+function post(db, postId = 'moderation-post') {
+  return doc(db, 'schools', school, 'posts', postId);
+}
+
+function blockRecord(db, owner, target, schoolId = school) {
+  return doc(db, 'users', owner.uid, 'schools', schoolId, 'blocked', target.uid);
+}
+
+function blockData(target) {
+  return { targetUid: target.uid, displayName: target.name, createdAt: serverTimestamp() };
+}
+
+function reportRecord(db, reportId) {
+  return doc(db, 'schools', school, 'moderationReports', reportId);
+}
+
+function reportData(overrides = {}) {
+  return {
+    kind: 'post',
+    parentId: '',
+    contentId: 'moderation-post',
+    reason: 'harassment',
+    reporterId: teacher.uid,
+    targetUid: alice.uid,
+    title: 'Campus photos',
+    body: 'After school',
+    createdAt: serverTimestamp(),
+    status: 'pending',
+    ...overrides,
+  };
+}
+
+test('objectionable text is rejected for a post, photo caption, comment and DM', async () => {
+  const aliceDb = as(alice);
+  const teacherDb = as(teacher);
+  const ref = post(aliceDb);
+  const allowed = { authorId: alice.uid, title: 'Campus photos', body: 'After school' };
+  const gallery = { ...allowed, category: 'gallery' };
+  await assertFails(setDoc(ref, { ...allowed, title: 'I WILL kill you!' }));
+  await assertFails(setDoc(ref, { ...gallery, body: 'A photo\nKill\tyourself' }));
+  await assertSucceeds(setDoc(ref, gallery));
+  await assertFails(updateDoc(ref, { body: 'fuck  you' }));
+  const comment = doc(post(teacherDb), 'replies', 'teacher-comment');
+  const commentData = { authorId: teacher.uid, body: 'Thanks for sharing!' };
+  await assertFails(setDoc(comment, { ...commentData, body: 'KILL YOURSELF' }));
+  await assertSucceeds(setDoc(comment, commentData));
+  await assertFails(updateDoc(comment, { body: 'I will kill you' }));
+
+  await acceptInvitation(aliceDb, teacherDb);
+  const message = doc(messages(aliceDb), 'alice:aaaaaaaaaaaaaaaaaaaa');
+  await assertFails(setDoc(message, textMessage(alice, 'Message:\nFUCK YOU.')));
+  await assertSucceeds(setDoc(message, textMessage(alice, 'Can you kill the background process?')));
+});
+
+test('school blocks are private, stop both directions of contact and support unblocking', async () => {
+  const aliceDb = as(alice);
+  const teacherDb = as(teacher);
+  const block = blockRecord(aliceDb, alice, teacher);
+  await assertFails(setDoc(blockRecord(aliceDb, alice, alice), blockData(alice)));
+  await assertFails(setDoc(blockRecord(aliceDb, alice, outsider), blockData(outsider)));
+  await assertFails(setDoc(blockRecord(aliceDb, alice, teacher, otherSchool), blockData(teacher)));
+  await assertFails(setDoc(blockRecord(teacherDb, alice, teacher), blockData(teacher)));
+  await assertFails(setDoc(block, { ...blockData(teacher), targetUid: peer.uid }));
+  await assertSucceeds(setDoc(block, blockData(teacher)));
+  await assertSucceeds(getDoc(block));
+  await assertFails(getDoc(blockRecord(teacherDb, alice, teacher)));
+  await assertFails(setDoc(invitation(aliceDb, alice, teacher), pending(alice, teacher)));
+  await assertFails(setDoc(invitation(teacherDb, teacher, alice), pending(teacher, alice)));
+
+  await assertSucceeds(deleteDoc(block));
+  await assertSucceeds(setDoc(invitation(aliceDb, alice, teacher), pending(alice, teacher)));
+  await assertSucceeds(setDoc(block, blockData(teacher)));
+  await assertFails(updateDoc(
+    invitation(teacherDb, alice, teacher),
+    outcome('accepted', { recipientName: teacher.name }),
+  ));
+  await assertSucceeds(deleteDoc(block));
+  await assertSucceeds(updateDoc(
+    invitation(teacherDb, alice, teacher),
+    outcome('accepted', { recipientName: teacher.name }),
+  ));
+
+  const fromAlice = doc(messages(aliceDb), 'alice:aaaaaaaaaaaaaaaaaaaa');
+  const fromTeacher = doc(messages(teacherDb), 'teacher:aaaaaaaaaaaaaaaaaaaa');
+  const batch = writeBatch(aliceDb);
+  batch.set(block, blockData(teacher));
+  batch.set(fromAlice, textMessage(alice));
+  await assertFails(batch.commit());
+  await assertSucceeds(setDoc(block, blockData(teacher)));
+  await assertFails(setDoc(fromTeacher, textMessage(teacher)));
+  await assertFails(setDoc(fromAlice, textMessage(alice)));
+  await assertSucceeds(deleteDoc(block));
+  await assertSucceeds(setDoc(fromTeacher, textMessage(teacher)));
+});
+
+test('reports preserve verified evidence and cannot be read or forged by members', async () => {
+  const aliceDb = as(alice);
+  const teacherDb = as(teacher);
+  const peerDb = as(peer);
+  const outsiderDb = as(outsider);
+  const realPost = post(aliceDb);
+  await setDoc(realPost, { authorId: alice.uid, title: 'Campus photos', body: 'After school' });
+  const report = reportRecord(teacherDb, 'post-evidence');
+  await assertFails(setDoc(report, reportData({ body: 'Invented text' })));
+  await assertFails(setDoc(report, reportData({ targetUid: peer.uid })));
+  await assertFails(setDoc(report, reportData({ reporterId: peer.uid })));
+  await assertFails(setDoc(report, reportData({ contentId: 'nonexistent' })));
+  await assertFails(setDoc(reportRecord(outsiderDb, 'outsider'), reportData({ reporterId: outsider.uid })));
+  await assertSucceeds(setDoc(report, reportData()));
+  await assertFails(getDoc(report));
+  await assertFails(getDoc(reportRecord(aliceDb, 'post-evidence')));
+  await assertFails(getDocs(collection(teacherDb, 'schools', school, 'moderationReports')));
+  await assertFails(updateDoc(report, { status: 'resolved' }));
+
+  await setDoc(doc(realPost, 'replies', 'alice-comment'), {
+    authorId: alice.uid, body: 'A concerning comment',
+  });
+  await assertSucceeds(setDoc(reportRecord(teacherDb, 'comment-evidence'), reportData({
+    kind: 'comment', parentId: 'moderation-post', contentId: 'alice-comment',
+    title: '', body: 'A concerning comment',
+  })));
+
+  await acceptInvitation(aliceDb, teacherDb);
+  const messageId = 'alice:aaaaaaaaaaaaaaaaaaaa';
+  await setDoc(doc(messages(aliceDb), messageId), textMessage(alice, 'A private comment'));
+  const privateEvidence = reportData({
+    kind: 'message', parentId: pair(alice, teacher), contentId: messageId,
+    title: '', body: 'A private comment',
+  });
+  await assertFails(setDoc(
+    reportRecord(peerDb, 'message-peek'),
+    { ...privateEvidence, reporterId: peer.uid },
+  ));
+  await assertSucceeds(setDoc(reportRecord(teacherDb, 'message-evidence'), privateEvidence));
+
+  await environment.withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(admin.firestore(), 'accountDeletionRequests', alice.uid), {
+      status: 'pending',
+    });
+  });
+  await assertFails(setDoc(reportRecord(teacherDb, 'target-pending-deletion'), reportData()));
+  await assertFails(setDoc(blockRecord(teacherDb, teacher, alice), blockData(alice)));
+});
+
+test('new photo bytes are private until review and approved photo bytes cannot be replaced', async () => {
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aQioAAAAASUVORK5CYII=';
+  const aliceDb = as(alice);
+  const teacherDb = as(teacher);
+  const album = {
+    id: 'pending-album',
+    authorId: alice.uid,
+    authorName: alice.name,
+    title: 'Campus photos',
+    body: 'After school',
+    category: 'gallery',
+    subtag: 'Campus',
+    at: new Date().toISOString(),
+    anonymous: false,
+    priority: 'Normal',
+    askedPerson: null,
+    photos: [png],
+    likes: 0,
+  };
+  const path = ['schools', school, 'photoSubmissions', album.id];
+  const pending = { ...album, status: 'pending', submittedAt: serverTimestamp() };
+  const privateRef = doc(aliceDb, ...path);
+  const publicRef = post(aliceDb, album.id);
+  await assertFails(setDoc(publicRef, album));
+  await assertFails(setDoc(publicRef, { ...album, category: 'question' }));
+  await assertFails(setDoc(privateRef, { ...pending, status: 'approved' }));
+  await assertFails(setDoc(privateRef, { ...pending, body: 'I WILL kill you' }));
+  await assertFails(setDoc(privateRef, { ...pending, photos: ['bad-image'] }));
+  await assertFails(setDoc(privateRef, { ...pending, authorName: teacher.name }));
+  await assertFails(setDoc(doc(as(outsider), ...path), pending));
+  assert.equal((await assertSucceeds(getDoc(privateRef))).exists(), false);
+  await assertSucceeds(setDoc(privateRef, pending));
+  await assertSucceeds(getDoc(privateRef));
+  await assertFails(getDoc(doc(teacherDb, ...path)));
+  await assertFails(getDoc(doc(as(outsider), ...path)));
+  assert.equal((await getDoc(publicRef)).exists(), false);
+  await assertFails(updateDoc(privateRef, { status: 'approved' }));
+  await assertFails(updateDoc(privateRef, { title: 'Edited after submission' }));
+  const collectionRef = collection(aliceDb, ...path.slice(0, -1));
+  await assertFails(getDocs(query(collectionRef, limit(10))));
+  const own = query(
+    collectionRef,
+    where('authorId', '==', alice.uid),
+    orderBy(documentId(), 'desc'),
+    limit(10),
+  );
+  assert.equal((await assertSucceeds(getDocs(own))).size, 1);
+
+  await environment.withSecurityRulesDisabled(async (admin) => {
+    const db = admin.firestore();
+    await setDoc(post(db, album.id), album);
+    await updateDoc(doc(db, ...path), { status: 'approved', photos: deleteField() });
+  });
+  assert.deepEqual((await assertSucceeds(getDoc(post(teacherDb, album.id)))).data().photos, [png]);
+  await assertSucceeds(updateDoc(publicRef, { body: 'A new caption' }));
+  await assertSucceeds(updateDoc(publicRef, { body: 'More caption', photos: [png] }));
+  await assertFails(updateDoc(publicRef, { photos: [png, png] }));
+  await assertFails(updateDoc(publicRef, { title: 'Fuck you' }));
+  assert.equal((await assertSucceeds(getDoc(privateRef))).data().status, 'approved');
 });

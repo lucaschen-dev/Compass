@@ -1,9 +1,12 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'account_deletion_ui.dart';
 import 'app_ui.dart';
+import 'compass_policy_links.dart';
 import 'community_feed.dart';
 import 'community_models.dart';
 import 'school_demo.dart';
+import 'school_moderation_ui.dart';
 
 class CommunityProfilePage extends StatefulWidget {
   const CommunityProfilePage({
@@ -16,6 +19,7 @@ class CommunityProfilePage extends StatefulWidget {
     required this.onSwitchSchool,
     this.cloudBacked = false,
     this.onOpenFriends,
+    this.onRequestDeletion,
   });
   final CommunityController c;
   final String email;
@@ -25,6 +29,7 @@ class CommunityProfilePage extends StatefulWidget {
   final VoidCallback onSwitchSchool;
   final bool cloudBacked;
   final VoidCallback? onOpenFriends;
+  final Future<void> Function(String receipt)? onRequestDeletion;
   @override
   State<CommunityProfilePage> createState() => _CommunityProfilePageState();
 }
@@ -61,7 +66,7 @@ class _CommunityProfilePageState extends State<CommunityProfilePage> {
     listenable: widget.c,
     builder: (context, _) {
       final p = widget.c.profile;
-      final posts = widget.c.posts.where(
+      final posts = widget.c.visiblePosts.where(
         (p) =>
             _tab == 0 ? p.authorId == 'me' : widget.c.savedPosts.contains(p.id),
       );
@@ -214,6 +219,7 @@ class _CommunityProfilePageState extends State<CommunityProfilePage> {
                     onSwitchSchool: widget.onSwitchSchool,
                     community: widget.c,
                     cloudBacked: widget.cloudBacked,
+                    onRequestDeletion: widget.onRequestDeletion,
                   ),
                 ),
               ),
@@ -330,6 +336,7 @@ class _SettingsPage extends StatefulWidget {
     required this.onSwitchSchool,
     required this.community,
     required this.cloudBacked,
+    this.onRequestDeletion,
   });
   final DemoSchool school;
   final String email;
@@ -339,6 +346,7 @@ class _SettingsPage extends StatefulWidget {
   final VoidCallback onSwitchSchool;
   final CommunityController community;
   final bool cloudBacked;
+  final Future<void> Function(String receipt)? onRequestDeletion;
   @override
   State<_SettingsPage> createState() => _SettingsPageState();
 }
@@ -398,6 +406,15 @@ class _SettingsPageState extends State<_SettingsPage> {
           title: const Text('Account'),
           subtitle: Text(widget.email),
         ),
+        if (widget.onRequestDeletion != null)
+          AccountDeletionButton(
+            onRequested: (receipt) async {
+              await widget.onRequestDeletion!(receipt);
+              if (context.mounted) {
+                Navigator.popUntil(context, (r) => r.isFirst);
+              }
+            },
+          ),
         const Divider(),
         ListTile(
           contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -414,6 +431,7 @@ class _SettingsPageState extends State<_SettingsPage> {
           ),
         ),
         const Divider(),
+        const CompassPolicyLinks(),
         const SizedBox(height: 28),
         TextButton(
           onPressed: () async {
@@ -465,6 +483,14 @@ class _PrivacyPage extends StatelessWidget {
                   : 'Your posts and demo conversations are saved in this browser or on this device.',
               style: text.bodyLarge,
             ),
+            if (community.moderation case final moderation?)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.block_outlined),
+                title: const Text('Blocked people'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => openBlockedPeople(context, moderation),
+              ),
             if (!cloudBacked) ...[
               const SizedBox(height: 10),
               Text(

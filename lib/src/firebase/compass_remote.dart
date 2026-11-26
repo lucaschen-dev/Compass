@@ -3,11 +3,11 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
-import '../campus_photo_media.dart';
 import '../community_models.dart';
 import '../data/firestore_repositories.dart';
 import '../data/friend_repository.dart';
 import '../data/school_chat_repository.dart';
+import '../data/school_moderation.dart';
 import '../data/sync_codec.dart';
 import '../data/user_state.dart';
 import '../school_demo.dart';
@@ -45,13 +45,19 @@ class CompassRemote {
     uid: uid,
   );
 
+  late final SchoolModeration moderation = FirebaseSchoolModeration(
+    firestore: gateway.firestore,
+    auth: gateway.auth,
+    schoolId: school.id,
+    uid: uid,
+  );
+
   CommunityController? controller;
   String? _baseline;
   String? _latest;
   String? _lastState;
   bool _suppress = false;
   Timer? _timer;
-  final _acknowledgedGalleryPosts = <String, CommunityPost>{};
 
   String get _postsKey => 'compass.sync.$uid.${school.id}.postsAt';
   String get _seedKey => 'compass.sync.$uid.${school.id}.seededRemote';
@@ -75,6 +81,7 @@ class CompassRemote {
 
   Future<void> hydrate(CommunityController controller) async {
     this.controller = controller;
+    controller.moderation = moderation;
     _suppress = true;
     try {
       await gateway.listSchools();
@@ -151,22 +158,11 @@ class CompassRemote {
     }
   }
 
-  Future<void> publishGalleryPost(CommunityPost post) async {
-    if (post.category != PostCategory.gallery ||
-        !post.sharedGalleryMedia ||
-        !ownsAuthor(post.authorId, uid) ||
-        post.photos.isEmpty ||
-        post.photos.length > galleryPhotoLimit ||
-        !post.photos.every(isSharedGalleryPhoto)) {
-      throw ArgumentError('Choose up to $galleryPhotoLimit photos to publish.');
-    }
-    // Only the post document is written. Replies are a separate collection.
-    // The composer keeps the same ID on retry, including after a timeout.
-    await gateway
-        .applyDelta(school.id, CommunityDelta(upsertPosts: [post]), uid)
-        .timeout(const Duration(seconds: 18));
-    _acknowledgedGalleryPosts[post.id] = post;
-  }
+  late final Stream<List<GallerySubmission>> gallerySubmissions = gateway
+      .watchGallerySubmissions(school.id, uid);
+
+  Future<void> submitGalleryPost(CommunityPost post) =>
+      gateway.submitGalleryPost(school.id, uid, post);
 
   Future<void> flush() async {
     final current = controller;
@@ -176,7 +172,6 @@ class CompassRemote {
       previousEncoded: _baseline,
       nextEncoded: encoded,
       uid: uid,
-      acknowledgedPosts: _acknowledgedGalleryPosts,
     );
     // Real direct messages live under an accepted friend request and use the
     // chat repository. Existing local demo threads are never uploaded here.
@@ -192,7 +187,6 @@ class CompassRemote {
     final stateChanged = stateJson != _lastState;
     if (delta.isEmpty && !stateChanged) {
       _baseline = encoded;
-      _forgetAcknowledgedPosts(encoded);
       return;
     }
     try {
@@ -200,17 +194,8 @@ class CompassRemote {
       if (!delta.isEmpty) await gateway.applyDelta(school.id, delta, uid);
       _baseline = encoded;
       _lastState = stateJson;
-      _forgetAcknowledgedPosts(encoded);
     } catch (_) {
       _reportOffline();
-    }
-  }
-
-  void _forgetAcknowledgedPosts(String encoded) {
-    if (_acknowledgedGalleryPosts.isEmpty) return;
-    final snapshot = jsonDecode(encoded) as Map<String, dynamic>;
-    for (final post in snapshot['posts'] as List) {
-      _acknowledgedGalleryPosts.remove((post as Map)['id']);
     }
   }
 
@@ -240,6 +225,8 @@ class CompassRemote {
 
   Future<void> dispose() async {
     _timer?.cancel();
+    controller?.moderation = null;
+    moderation.dispose();
   }
 
   Future<bool> _stale(String key) async {

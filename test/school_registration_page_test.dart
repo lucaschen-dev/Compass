@@ -1,7 +1,10 @@
 import 'package:compass_flutter/src/data/school_registry.dart';
 import 'package:compass_flutter/src/existing_account_sign_in.dart';
+import 'package:compass_flutter/src/firebase/firebase_accounts.dart';
+import 'package:compass_flutter/src/local_accounts.dart';
 import 'package:compass_flutter/src/preview_theme.dart';
 import 'package:compass_flutter/src/school_registration_page.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -22,6 +25,58 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  test('Apple platforms use Compass credentials for native sign-in', () {
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS]) {
+      debugDefaultTargetPlatformOverride = platform;
+      expect(allowsGoogleSignIn, kIsWeb);
+    }
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    expect(allowsGoogleSignIn, isTrue);
+  });
+
+  testWidgets('password account creation waits for email verification', (
+    tester,
+  ) async {
+    var verified = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: TextButton(
+                onPressed: () => openExistingAccountSignIn(
+                  context,
+                  onPassword: (_, _) async {},
+                  onCreate: (email, _) async =>
+                      throw EmailVerificationRequired(email, sent: true),
+                  onVerify: () async {
+                    verified = true;
+                  },
+                ),
+                child: const Text('Open sign-in'),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await _tap(tester, find.text('Open sign-in'));
+    expect(find.text('Continue with Google'), findsNothing);
+    await _tap(tester, find.text('Create Compass account'));
+    await _enter(tester, 'Email address', 'office@harbor.edu');
+    await _enter(tester, 'Password', 'example account password');
+    await _tap(tester, find.text('Create account'));
+    expect(
+      find.text('Verification email sent to office@harbor.edu.'),
+      findsOne,
+    );
+    expect(verified, isFalse);
+    await _tap(tester, find.text('I verified my email'));
+    expect(verified, isTrue);
+    expect(find.text('Open sign-in'), findsOne);
+  });
+
   testWidgets('school application requires a same-domain contact email', (
     tester,
   ) async {

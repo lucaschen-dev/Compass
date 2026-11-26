@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:compass_flutter/src/campus_photo_media.dart';
@@ -109,32 +110,6 @@ void main() {
     expect(cached['composerDraft']['photos'], [_pixel]);
   });
 
-  test(
-    'the automatic sync does not write an acknowledged album a second time',
-    () {
-      final post = _gallery(shared: true, photos: [_pixel]);
-      final snapshot = jsonEncode({
-        'posts': [post.toJson()],
-      });
-      final acknowledged = diffEncoded(
-        previousEncoded: null,
-        nextEncoded: snapshot,
-        uid: 'me-uid',
-        acknowledgedPosts: {post.id: post},
-      );
-      expect(acknowledged.upsertPosts, isEmpty);
-      final changed = diffEncoded(
-        previousEncoded: null,
-        nextEncoded: jsonEncode({
-          'posts': [post.copyWith(anonymous: true).toJson()],
-        }),
-        uid: 'me-uid',
-        acknowledgedPosts: {post.id: post},
-      );
-      expect(changed.upsertPosts.single.anonymous, isTrue);
-    },
-  );
-
   testWidgets(
     'campus photos group days and retry a failed school upload without replacing the text draft',
     (tester) async {
@@ -160,7 +135,9 @@ void main() {
                 'photos': [_pixel],
               },
             };
-      final published = <CommunityPost>[];
+      final submissions = StreamController<List<GallerySubmission>>.broadcast();
+      addTearDown(submissions.close);
+      final submitted = <CommunityPost>[];
       await tester.pumpWidget(
         MaterialApp(
           theme: localCompassTheme(Brightness.light),
@@ -171,9 +148,16 @@ void main() {
               onSavePreferences: (_) async {},
               friendIds: const {},
               onAddFriend: (_) async {},
-              publishGalleryPost: (post) async {
-                published.add(post);
-                if (published.length == 1) throw StateError('Offline');
+              gallerySubmissions: submissions.stream,
+              submitGalleryPost: (post) async {
+                submitted.add(post);
+                if (submitted.length == 1) throw StateError('Offline');
+                submissions.add([
+                  GallerySubmission(
+                    title: post.title,
+                    status: GallerySubmissionStatus.pending,
+                  ),
+                ]);
               },
             ),
           ),
@@ -187,14 +171,18 @@ void main() {
       await tester.scrollUntilVisible(find.text('Post photos'), -400);
       await tapVisible(tester, find.text('Post photos'));
       expect(find.text('Add photos (1/4)'), findsOneWidget);
-      await tapVisible(tester, find.text('Post'));
+      await tapVisible(tester, find.text('Submit for review'));
       expect(c.posts.length, 2);
-      expect(c.composerDraft['photoDraft']['postId'], published.single.id);
-      await tapVisible(tester, find.text('Post'));
-      expect(published.length, 2);
-      expect(published.map((p) => p.id).toSet(), hasLength(1));
-      expect(c.posts.first.id, published.last.id);
-      expect(c.posts.first.sharedGalleryMedia, isTrue);
+      expect(c.composerDraft['photoDraft']['postId'], submitted.single.id);
+      await tapVisible(tester, find.text('Submit for review'));
+      expect(submitted.length, 2);
+      expect(submitted.map((p) => p.id).toSet(), hasLength(1));
+      expect(c.posts.length, 2);
+      expect(c.posts.any((post) => post.id == submitted.last.id), isFalse);
+      expect(submitted.last.sharedGalleryMedia, isTrue);
+      expect(find.text('Photos submitted for review.'), findsOneWidget);
+      await tapVisible(tester, find.text('Your submissions'));
+      expect(find.text('Pending review'), findsOneWidget);
       expect(c.composerDraft, {'title': 'Ordinary text draft'});
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

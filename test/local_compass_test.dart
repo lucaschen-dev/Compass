@@ -39,11 +39,9 @@ void main() {
     expect(find.text('First login'), findsOneWidget);
     await tapVisible(tester, find.text('First login'));
     await tester.enterText(find.byType(TextField), 'demo');
-    await tapVisible(tester, find.text('Send setup email'));
-    expect(
-      find.text('Email service is not configured. No email has been sent.'),
-      findsOneWidget,
-    );
+    await tapVisible(tester, find.text('Set up a local demo account'));
+    expect(find.text('Set a demo password'), findsOneWidget);
+    expect(find.byType(CupertinoTabBar), findsNothing);
   });
   testWidgets(
     'guide progress, school sessions and four-tab navigation survive restart',

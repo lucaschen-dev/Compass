@@ -6,6 +6,8 @@ import 'package:material_ui/material_ui.dart';
 import 'app_ui.dart';
 import 'data/friend_repository.dart';
 import 'data/school_chat_repository.dart';
+import 'data/school_moderation.dart';
+import 'school_moderation_ui.dart';
 
 class SchoolChatPage extends StatefulWidget {
   const SchoolChatPage({
@@ -13,11 +15,13 @@ class SchoolChatPage extends StatefulWidget {
     required this.friends,
     required this.chat,
     required this.onAddFriend,
+    this.moderation,
   });
 
   final FriendRepository friends;
   final SchoolChatRepository chat;
   final VoidCallback onAddFriend;
+  final SchoolModeration? moderation;
 
   @override
   State<SchoolChatPage> createState() => _SchoolChatPageState();
@@ -43,7 +47,12 @@ class _SchoolChatPageState extends State<SchoolChatPage> {
   }
 
   @override
-  Widget build(
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([widget.moderation]),
+    builder: (context, _) => _buildChat(context),
+  );
+
+  Widget _buildChat(
     BuildContext context,
   ) => StreamBuilder<List<SchoolFriendRequest>>(
     stream: _requests,
@@ -51,7 +60,13 @@ class _SchoolChatPageState extends State<SchoolChatPage> {
       final uid = widget.friends.uid;
       final requests = snapshot.connectionState == ConnectionState.waiting
           ? const <SchoolFriendRequest>[]
-          : snapshot.data ?? [];
+          : (snapshot.data ?? [])
+                .where(
+                  (request) =>
+                      widget.moderation?.isBlocked(request.otherUid(uid)) !=
+                      true,
+                )
+                .toList();
       final incoming = requests
           .where(
             (request) =>
@@ -90,6 +105,12 @@ class _SchoolChatPageState extends State<SchoolChatPage> {
                 ),
                 label: const Text('Add friend'),
               ),
+              if (widget.moderation case final moderation?)
+                IconButton(
+                  tooltip: 'Blocked people',
+                  icon: const Icon(Icons.block_outlined),
+                  onPressed: () => openBlockedPeople(context, moderation),
+                ),
             ],
           ),
           const SizedBox(height: 20),
@@ -131,6 +152,7 @@ class _SchoolChatPageState extends State<SchoolChatPage> {
                   chat: widget.chat,
                   peerId: friend.id,
                   peerName: friend.name,
+                  moderation: widget.moderation,
                 ),
               ),
           ],
@@ -145,10 +167,15 @@ Future<void> openSchoolConversation(
   required SchoolChatRepository chat,
   required String peerId,
   required String peerName,
+  SchoolModeration? moderation,
 }) => Navigator.of(context).push<void>(
   MaterialPageRoute(
-    builder: (_) =>
-        _SchoolConversationPage(chat: chat, peerId: peerId, peerName: peerName),
+    builder: (_) => _SchoolConversationPage(
+      chat: chat,
+      peerId: peerId,
+      peerName: peerName,
+      moderation: moderation,
+    ),
   ),
 );
 
@@ -157,11 +184,13 @@ class _SchoolConversationPage extends StatefulWidget {
     required this.chat,
     required this.peerId,
     required this.peerName,
+    this.moderation,
   });
 
   final SchoolChatRepository chat;
   final String peerId;
   final String peerName;
+  final SchoolModeration? moderation;
 
   @override
   State<_SchoolConversationPage> createState() =>
@@ -205,9 +234,15 @@ class _SchoolConversationPageState extends State<_SchoolConversationPage> {
   bool get _composing =>
       _draft.value.isComposingRangeValid && !_draft.value.composing.isCollapsed;
 
+  bool get _blocked => widget.moderation?.isBlocked(widget.peerId) ?? false;
+
   Future<void> _send() async {
     final text = _draft.text.trim();
-    if (_sending || _composing || text.isEmpty) return;
+    if (_blocked || _sending || _composing || text.isEmpty) return;
+    if (widget.moderation != null && !communityTextAllowed(text)) {
+      showAppError(context, communityTextWarning);
+      return;
+    }
     if (text.length > schoolChatMessageLimit) {
       showAppError(context, 'Please shorten this message before sending.');
       return;
@@ -228,6 +263,8 @@ class _SchoolConversationPageState extends State<_SchoolConversationPage> {
       _lastAttempt = null;
       if (_draft.text.trim() == text) _draft.clear();
       if (_scroll.hasClients) _scroll.jumpTo(0);
+    } on SchoolChatActionException catch (error) {
+      if (mounted) showAppError(context, error.message);
     } catch (_) {
       if (mounted) {
         showAppError(context, 'Could not send. Your draft is still here.');
@@ -292,13 +329,48 @@ class _SchoolConversationPageState extends State<_SchoolConversationPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([widget.moderation]),
+    builder: (context, _) => _conversation(context),
+  );
+
+  Widget _conversation(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: Text(
         widget.peerName,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
+      actions: [
+        if (widget.moderation case final moderation?)
+          PopupMenuButton<String>(
+            tooltip: 'Conversation actions',
+            onSelected: (value) {
+              if (value == 'manage') {
+                openBlockedPeople(context, moderation);
+              } else {
+                confirmSchoolBlock(
+                  context,
+                  moderation,
+                  widget.peerId,
+                  widget.peerName,
+                );
+              }
+            },
+            itemBuilder: (_) => [
+              if (_blocked)
+                const PopupMenuItem(
+                  value: 'manage',
+                  child: Text('Manage blocked people'),
+                )
+              else
+                const PopupMenuItem(
+                  value: 'block',
+                  child: Text('Block person'),
+                ),
+            ],
+          ),
+      ],
     ),
     body: SafeArea(
       top: false,
@@ -369,11 +441,28 @@ class _SchoolConversationPageState extends State<_SchoolConversationPage> {
                                 key: ValueKey(message.id),
                                 message: message,
                                 own: message.senderId == widget.chat.uid,
+                                actions:
+                                    message.senderId != widget.chat.uid &&
+                                        widget.moderation != null
+                                    ? SchoolContentActions(
+                                        moderation: widget.moderation!,
+                                        target: SchoolReportTarget.message(
+                                          widget.chat.uid,
+                                          widget.peerId,
+                                          message.id,
+                                        ),
+                                      )
+                                    : null,
                               );
                             },
                           ),
                   ),
-                  _composer(),
+                  if (_blocked)
+                    const _ConversationStatus(
+                      message: 'Unblock this person to send messages.',
+                    )
+                  else
+                    _composer(),
                 ],
               );
             },
@@ -455,10 +544,16 @@ class _ConversationStatus extends StatelessWidget {
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({super.key, required this.message, required this.own});
+  const _MessageBubble({
+    super.key,
+    required this.message,
+    required this.own,
+    this.actions,
+  });
 
   final SchoolChatMessage message;
   final bool own;
+  final Widget? actions;
 
   @override
   Widget build(BuildContext context) {
@@ -490,7 +585,17 @@ class _MessageBubble extends StatelessWidget {
               children: [
                 SelectableText(message.text),
                 const SizedBox(height: 3),
-                Text(time, style: Theme.of(context).textTheme.bodySmall),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        time,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    ?actions,
+                  ],
+                ),
               ],
             ),
           ),

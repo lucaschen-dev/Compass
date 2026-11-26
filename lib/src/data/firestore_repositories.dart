@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../community_models.dart';
+import '../campus_photo_media.dart';
 import 'repositories.dart';
 import 'sync_codec.dart';
 import 'user_state.dart';
@@ -22,8 +23,10 @@ class FirestoreGateway {
   DocumentReference<Map<String, dynamic>> _user(String uid) =>
       firestore.collection('users').doc(uid);
 
-  DocumentReference<Map<String, dynamic>> stateRef(String uid, String schoolId) =>
-      _user(uid).collection('schools').doc(schoolId);
+  DocumentReference<Map<String, dynamic>> stateRef(
+    String uid,
+    String schoolId,
+  ) => _user(uid).collection('schools').doc(schoolId);
 
   CollectionReference<Map<String, dynamic>> _posts(String schoolId) =>
       firestore.collection('schools').doc(schoolId).collection('posts');
@@ -70,13 +73,18 @@ class FirestoreGateway {
     }
   }
 
-  Future<Map<String, Object?>?> publicProfile(String schoolId, String email) async {
+  Future<Map<String, Object?>?> publicProfile(
+    String schoolId,
+    String email,
+  ) async {
     final uid = auth.currentUser?.uid;
     if (uid == null) return null;
     try {
       final doc = await _user(uid).get();
       final data = doc.data();
-      if (data == null || data['schoolId'] != schoolId || data['email'] != email) {
+      if (data == null ||
+          data['schoolId'] != schoolId ||
+          data['email'] != email) {
         return null;
       }
       return data;
@@ -95,12 +103,14 @@ class FirestoreGateway {
   Future<void> saveState(String uid, String schoolId, UserSchoolState state) {
     final payload = state.toMap();
     if (containsForbiddenRemoteKeys(payload)) {
-      throw StateError('Private state included a field that stays on the device.');
+      throw StateError(
+        'Private state included a field that stays on the device.',
+      );
     }
-    return stateRef(uid, schoolId).set({
-      ...payload,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    return stateRef(
+      uid,
+      schoolId,
+    ).set({...payload, 'updatedAt': FieldValue.serverTimestamp()});
   }
 
   Future<void> saveProfile({
@@ -166,6 +176,72 @@ class FirestoreGateway {
     return null;
   }
 
+  CollectionReference<Map<String, dynamic>> _photoSubmissions(
+    String schoolId,
+  ) => firestore
+      .collection('schools')
+      .doc(schoolId)
+      .collection('photoSubmissions');
+
+  Stream<List<GallerySubmission>> watchGallerySubmissions(
+    String schoolId,
+    String uid,
+  ) =>
+      _photoSubmissions(schoolId)
+          .where('authorId', isEqualTo: uid)
+          .orderBy(FieldPath.documentId, descending: true)
+          .limit(10)
+          .snapshots()
+          .map(
+            (snapshot) => [
+              for (final doc in snapshot.docs)
+                if (doc.data() case {
+                  'title': final String title,
+                  'status': final String status,
+                })
+                  for (final value in GallerySubmissionStatus.values)
+                    if (value.name == status)
+                      GallerySubmission(title: title, status: value),
+            ],
+          );
+
+  Future<void> submitGalleryPost(
+    String schoolId,
+    String uid,
+    CommunityPost post,
+  ) async {
+    if (auth.currentUser?.uid != uid ||
+        post.category != PostCategory.gallery ||
+        !post.sharedGalleryMedia ||
+        !ownsAuthor(post.authorId, uid) ||
+        post.photos.isEmpty ||
+        post.photos.length > galleryPhotoLimit ||
+        !post.photos.every(isSharedGalleryPhoto)) {
+      throw ArgumentError('Choose up to $galleryPhotoLimit photos to submit.');
+    }
+
+    final name = post.anonymous
+        ? null
+        : await _verifiedAuthorName(schoolId, uid);
+    if (!post.anonymous && name == null) {
+      throw StateError('Sign in again to submit photos.');
+    }
+    final submission = _photoSubmissions(schoolId).doc(post.id);
+    await firestore
+        .runTransaction((transaction) async {
+          if (auth.currentUser?.uid != uid) {
+            throw StateError('Sign in again to submit photos.');
+          }
+          if ((await transaction.get(submission)).exists) return;
+          transaction.set(submission, {
+            ...remotePostJson(post, uid, verifiedAuthorName: name),
+            'status': 'pending',
+            'submittedAt': FieldValue.serverTimestamp(),
+          });
+        })
+        .timeout(const Duration(seconds: 18));
+  }
+
   Future<void> _backfillAuthorNames(
     String schoolId,
     String uid,
@@ -185,12 +261,21 @@ class FirestoreGateway {
     }
   }
 
-  Future<void> applyDelta(String schoolId, CommunityDelta delta, String uid) async {
+  Future<void> applyDelta(
+    String schoolId,
+    CommunityDelta delta,
+    String uid,
+  ) async {
     final profile = delta.profile;
     if (profile != null && profile.name.trim().length >= 2) {
-      await saveProfile(uid: uid, name: profile.name.trim(), grade: profile.grade);
+      await saveProfile(
+        uid: uid,
+        name: profile.name.trim(),
+        grade: profile.grade,
+      );
     }
-    final authorName = delta.upsertReplies.isNotEmpty ||
+    final authorName =
+        delta.upsertReplies.isNotEmpty ||
             delta.upsertPosts.any((post) => !post.anonymous)
         ? await _verifiedAuthorName(schoolId, uid)
         : null;
@@ -210,7 +295,10 @@ class FirestoreGateway {
       }
     }
     for (final id in delta.deletePostIds) {
-      final replies = await _posts(schoolId).doc(id).collection('replies').get();
+      final replies = await _posts(schoolId)
+          .doc(id)
+          .collection('replies')
+          .get();
       for (final reply in replies.docs) {
         await reply.reference.delete();
       }
@@ -264,10 +352,10 @@ class FirestoreGateway {
     String threadId,
     String uid,
   ) async {
-    final snap = await _threads(schoolId, uid)
-        .doc(threadId)
-        .collection('messages')
-        .get();
+    final snap = await _threads(
+      schoolId,
+      uid,
+    ).doc(threadId).collection('messages').get();
     return [
       for (final doc in snap.docs)
         localMessageFromRemote({...doc.data(), 'id': doc.id}, uid),

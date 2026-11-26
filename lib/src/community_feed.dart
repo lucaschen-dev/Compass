@@ -8,8 +8,10 @@ import 'app_ui.dart';
 import 'campus_photo_media.dart';
 import 'campus_photos_page.dart';
 import 'community_models.dart';
+import 'data/school_moderation.dart';
 import 'for_you_page.dart';
 import 'recommendations.dart';
+import 'school_moderation_ui.dart';
 
 class CommunityFeed extends StatefulWidget {
   const CommunityFeed({
@@ -21,7 +23,8 @@ class CommunityFeed extends StatefulWidget {
     required this.onAddFriend,
     this.newcomerSection,
     this.onRefreshPhotos,
-    this.publishGalleryPost,
+    this.submitGalleryPost,
+    this.gallerySubmissions,
   });
   final CommunityController community;
   final StudentPreferences preferences;
@@ -30,7 +33,8 @@ class CommunityFeed extends StatefulWidget {
   final Future<void> Function(String)? onAddFriend;
   final Widget? newcomerSection;
   final Future<void> Function()? onRefreshPhotos;
-  final Future<void> Function(CommunityPost)? publishGalleryPost;
+  final Future<void> Function(CommunityPost)? submitGalleryPost;
+  final Stream<List<GallerySubmission>>? gallerySubmissions;
   @override
   State<CommunityFeed> createState() => _CommunityFeedState();
 }
@@ -69,11 +73,12 @@ class _CommunityFeedState extends State<CommunityFeed> {
       builder: (_) => CampusPhotosPage(
         community: c,
         onRefresh: widget.onRefreshPhotos,
+        submissions: widget.gallerySubmissions,
         onCompose: (context) => openPostComposer(
           context,
           c,
           photoOnly: true,
-          publishGalleryPost: widget.publishGalleryPost,
+          submitGalleryPost: widget.submitGalleryPost,
         ),
       ),
     ),
@@ -100,7 +105,7 @@ class _CommunityFeedState extends State<CommunityFeed> {
   @override
   Widget build(BuildContext context) {
     final posts =
-        c.posts
+        c.visiblePosts
             .where(
               (p) =>
                   (_category == null || p.category == _category) &&
@@ -452,7 +457,7 @@ class _CommunityFeedState extends State<CommunityFeed> {
             onPressed: () => openPostComposer(
               context,
               c,
-              publishGalleryPost: widget.publishGalleryPost,
+              submitGalleryPost: widget.submitGalleryPost,
             ),
             child: const Icon(Icons.add_rounded),
           ),
@@ -625,62 +630,52 @@ class PostTile extends StatelessWidget {
                 relativeTime(post.at),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              PopupMenuButton<String>(
-                tooltip: 'Post actions',
-                padding: EdgeInsets.zero,
-                onSelected: (v) async {
-                  if (v == 'anonymous') {
-                    await appSave(
-                      context,
-                      () => c.change(
-                        () => c.posts = [
-                          for (final p in c.posts)
-                            if (p.id == post.id)
-                              p.copyWith(anonymous: !p.anonymous)
-                            else
-                              p,
-                        ],
-                      ),
-                    );
-                  }
-                  if (!context.mounted) return;
-                  if (v == 'delete' &&
-                      await confirmAction(
-                        context,
-                        title: 'Delete this post and its comments?',
-                        action: 'Delete',
-                      )) {
-                    if (context.mounted) {
+              if (c.canModeratePost(post))
+                SchoolContentActions(
+                  moderation: c.moderation!,
+                  target: SchoolReportTarget.post(post.id),
+                  authorId: post.authorId,
+                  authorName: post.anonymous ? 'Anonymous student' : name,
+                ),
+              if (post.authorId == 'me')
+                PopupMenuButton<String>(
+                  tooltip: 'Post actions',
+                  padding: EdgeInsets.zero,
+                  onSelected: (v) async {
+                    if (v == 'anonymous') {
                       await appSave(
                         context,
                         () => c.change(
-                          () => c.posts = c.posts
-                              .where((p) => p.id != post.id)
-                              .toList(),
+                          () => c.posts = [
+                            for (final p in c.posts)
+                              if (p.id == post.id)
+                                p.copyWith(anonymous: !p.anonymous)
+                              else
+                                p,
+                          ],
                         ),
                       );
                     }
-                  }
-                  if (v == 'report' && context.mounted) {
-                    showDialog<void>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Report post'),
-                        content: const Text(
-                          'Reports need a connected school service. This preview does not send reports.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('OK'),
+                    if (!context.mounted) return;
+                    if (v == 'delete' &&
+                        await confirmAction(
+                          context,
+                          title: 'Delete this post and its comments?',
+                          action: 'Delete',
+                        )) {
+                      if (context.mounted) {
+                        await appSave(
+                          context,
+                          () => c.change(
+                            () => c.posts = c.posts
+                                .where((p) => p.id != post.id)
+                                .toList(),
                           ),
-                        ],
-                      ),
-                    );
-                  }
-                },
-                itemBuilder: (_) => [
-                  if (post.authorId == 'me') ...[
+                        );
+                      }
+                    }
+                  },
+                  itemBuilder: (_) => [
                     PopupMenuItem(
                       value: 'anonymous',
                       child: Text(
@@ -691,10 +686,8 @@ class PostTile extends StatelessWidget {
                       value: 'delete',
                       child: Text('Delete post'),
                     ),
-                  ] else
-                    const PopupMenuItem(value: 'report', child: Text('Report')),
-                ],
-              ),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -769,7 +762,7 @@ class PostTile extends StatelessWidget {
                   ),
                 ),
                 icon: const Icon(Icons.chat_bubble_outline_rounded, size: 22),
-                label: Text('${post.replies.length}'),
+                label: Text('${c.visibleReplies(post).length}'),
               ),
               const Spacer(),
               IconButton(
@@ -834,6 +827,10 @@ class _PostDetailState extends State<PostDetail> {
     final text = _reply.text.trim();
     if (text.isEmpty || _busy) return;
     final community = widget.community;
+    if (community.moderation != null && !communityTextAllowed(text)) {
+      showAppError(context, communityTextWarning);
+      return;
+    }
     setState(() => _busy = true);
     try {
       await community.change(
@@ -892,7 +889,7 @@ class _PostDetailState extends State<PostDetail> {
     listenable: widget.community,
     builder: (context, _) {
       final c = widget.community;
-      final p = c.posts.where((p) => p.id == widget.postId).firstOrNull;
+      final p = c.visiblePosts.where((p) => p.id == widget.postId).firstOrNull;
       return Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
@@ -919,7 +916,7 @@ class _PostDetailState extends State<PostDetail> {
           ),
         ),
         body: p == null
-            ? const Center(child: Text('This post was deleted.'))
+            ? const Center(child: Text('This post is unavailable.'))
             : SafeArea(
                 top: false,
                 child: ContentColumn(
@@ -937,7 +934,7 @@ class _PostDetailState extends State<PostDetail> {
                       'Comments',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    for (final r in p.replies)
+                    for (final r in c.visibleReplies(p))
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(c.replyAuthorName(r)),
@@ -948,7 +945,14 @@ class _PostDetailState extends State<PostDetail> {
                                 icon: const Icon(Icons.close, size: 18),
                                 onPressed: () => _deleteComment(p.id, r.id),
                               )
-                            : null,
+                            : c.moderation == null
+                            ? null
+                            : SchoolContentActions(
+                                moderation: c.moderation!,
+                                target: SchoolReportTarget.comment(p.id, r.id),
+                                authorId: r.author,
+                                authorName: c.replyAuthorName(r),
+                              ),
                       ),
                     const SizedBox(height: 24),
                     TextField(
@@ -980,7 +984,7 @@ Future<void> openPostComposer(
   BuildContext context,
   CommunityController c, {
   bool photoOnly = false,
-  Future<void> Function(CommunityPost)? publishGalleryPost,
+  Future<void> Function(CommunityPost)? submitGalleryPost,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
@@ -990,7 +994,7 @@ Future<void> openPostComposer(
   builder: (_) => _PostComposer(
     c: c,
     photoOnly: photoOnly,
-    publishGalleryPost: publishGalleryPost,
+    submitGalleryPost: submitGalleryPost,
   ),
 );
 
@@ -998,11 +1002,11 @@ class _PostComposer extends StatefulWidget {
   const _PostComposer({
     required this.c,
     required this.photoOnly,
-    required this.publishGalleryPost,
+    required this.submitGalleryPost,
   });
   final CommunityController c;
   final bool photoOnly;
-  final Future<void> Function(CommunityPost)? publishGalleryPost;
+  final Future<void> Function(CommunityPost)? submitGalleryPost;
   @override
   State<_PostComposer> createState() => _PostComposerState();
 }
@@ -1130,10 +1134,15 @@ class _PostComposerState extends State<_PostComposer> {
       );
       return;
     }
-    final publish = _category == PostCategory.gallery
-        ? widget.publishGalleryPost
+    if (widget.c.moderation != null &&
+        (!communityTextAllowed(title) || !communityTextAllowed(body))) {
+      showAppError(context, communityTextWarning);
+      return;
+    }
+    final submit = _category == PostCategory.gallery
+        ? widget.submitGalleryPost
         : null;
-    if (publish != null &&
+    if (submit != null &&
         (_photos.length > galleryPhotoLimit ||
             !_photos.every(isSharedGalleryPhoto))) {
       showAppError(
@@ -1156,17 +1165,17 @@ class _PostComposerState extends State<_PostComposer> {
       priority: _category == PostCategory.gallery ? 'Normal' : _priority,
       askedPerson: _category == PostCategory.question ? _asked : null,
       photos: List.of(_photos),
-      sharedGalleryMedia: publish != null,
+      sharedGalleryMedia: submit != null,
     );
-    if (publish != null) {
+    if (submit != null) {
       try {
         await _saveDraft();
-        await publish(post);
+        await submit(post);
       } catch (_) {
         if (mounted) {
           showAppError(
             context,
-            'Could not confirm publication. Your draft is still here. Try again.',
+            'Could not confirm the submission. Your draft is still here. Try again.',
           );
           setState(() => _busy = false);
         }
@@ -1175,21 +1184,32 @@ class _PostComposerState extends State<_PostComposer> {
     }
     try {
       await widget.c.change(() {
-        widget.c.posts = [
-          post,
-          ...widget.c.posts.where((previous) => previous.id != post.id),
-        ];
+        if (submit == null) {
+          widget.c.posts = [
+            post,
+            ...widget.c.posts.where((previous) => previous.id != post.id),
+          ];
+        }
         _replaceDraft({});
       });
       _posted = true;
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        if (submit != null) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              const SnackBar(content: Text('Photos submitted for review.')),
+            );
+        }
+        Navigator.pop(context);
+      }
     } catch (_) {
       if (mounted) {
         showAppError(
           context,
-          publish == null
+          submit == null
               ? 'Could not save the post. Try fewer or smaller photos.'
-              : 'Photos were shared, but this device could not update its copy.',
+              : 'Photos were submitted, but this device could not clear the draft.',
         );
         setState(() => _busy = false);
       }
@@ -1309,9 +1329,9 @@ class _PostComposerState extends State<_PostComposer> {
               ),
               const SizedBox(height: 8),
               Text(
-                widget.publishGalleryPost == null
+                widget.submitGalleryPost == null
                     ? 'Photos are saved on this device.'
-                    : 'Signed-in members of ${shortSchoolName(widget.c.school)} can see these photos. Only share photos you have permission to post.',
+                    : 'Photos will appear at ${shortSchoolName(widget.c.school)} after review. Only submit photos you have permission to share.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ] else ...[
@@ -1350,7 +1370,12 @@ class _PostComposerState extends State<_PostComposer> {
             const SizedBox(height: 18),
             FilledButton(
               onPressed: _busy || _picking ? null : _post,
-              child: Text(_busy ? 'Saving…' : 'Post'),
+              child: Text(
+                _category == PostCategory.gallery &&
+                        widget.submitGalleryPost != null
+                    ? (_busy ? 'Submitting…' : 'Submit for review')
+                    : (_busy ? 'Saving…' : 'Post'),
+              ),
             ),
           ],
         ),

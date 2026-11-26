@@ -5,6 +5,19 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function deletionRequest(uid) {
+      return /databases/$(database)/documents/accountDeletionRequests/$(uid);
+    }
+
+    function activeAccount(uid) {
+      return !exists(deletionRequest(uid));
+    }
+
+    function recentSignIn() {
+      return request.auth.token.auth_time is int
+        && request.time.toMillis() - request.auth.token.auth_time * 1000 < 300000;
+    }
+
     function verifiedEmail() {
       return signedIn() && request.auth.token.email_verified == true
         && request.auth.token.email is string;
@@ -81,6 +94,25 @@ service cloud.firestore {
       ]);
     }
 
+    function communityTextOk(text, maxLength) {
+      return text is string && text.size() <= maxLength
+        && !text.lower().matches('[\\s\\S]*\\b(kill\\s+yourself|i\\s+will\\s+kill\\s+you|fuck\\s+you)\\b[\\s\\S]*');
+    }
+
+    function moderationUidOk(uid) {
+      return uid is string && uid.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+
+    function moderationDocumentIdOk(id) {
+      return id is string && id.matches('^[A-Za-z0-9_:-]{1,257}$');
+    }
+
+    function canContact(schoolId, first, second) {
+      return activeAccount(first) && activeAccount(second)
+        && !existsAfter(/databases/$(database)/documents/users/$(first)/schools/$(schoolId)/blocked/$(second))
+        && !existsAfter(/databases/$(database)/documents/users/$(second)/schools/$(schoolId)/blocked/$(first));
+    }
+
     function authorNameOk(data) {
       return !('authorName' in data)
         || (data.authorName is string && data.authorName == userData().name);
@@ -112,15 +144,44 @@ service cloud.firestore {
 
     // Only the approved public catalog is available before sign-in.
     match /schoolRegistry/{schoolId} {
-      allow get, list: if resource.data.status == 'approved';
+      allow get: if resource.data.status == 'approved'
+        || (resource.data.status == 'review' && belongsToSchool(schoolId));
+      allow list: if resource.data.status == 'approved';
       allow create, update, delete: if false;
+    }
+
+    match /accountDeletionRequests/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid && recentSignIn()
+        && request.resource.data.keys().hasOnly(['status', 'requestedAt', 'receipt'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requestedAt == request.time
+        && request.resource.data.receipt is string
+        && request.resource.data.receipt.matches('^[0-9a-f]{48}$')
+        && getAfter(/databases/$(database)/documents/accountDeletionReceipts/$(request.resource.data.receipt)).data.status == 'pending'
+        && !exists(/databases/$(database)/documents/accountDeletionReceipts/$(request.resource.data.receipt));
+      allow list, update, delete: if false;
+    }
+
+    // The randomized receipt carries only the status, including once Auth is deleted.
+    match /accountDeletionReceipts/{receipt} {
+      allow get: if true;
+      allow create: if signedIn()
+        && activeAccount(request.auth.uid)
+        && getAfter(deletionRequest(request.auth.uid)).data.receipt == receipt
+        && request.resource.data.keys().hasOnly(['status'])
+        && request.resource.data.status == 'pending';
+      allow list, update, delete: if false;
     }
 
     match /schoolApplications/{applicantId} {
       allow get: if signedIn() && request.auth.uid == applicantId;
       allow create: if verifiedEmail()
         && request.auth.uid == applicantId
-        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && activeAccount(request.auth.uid)
+        && (request.auth.token.firebase.sign_in_provider == 'google.com'
+            || (request.auth.token.firebase.sign_in_provider == 'password'
+                && request.auth.token.email.lower() == request.resource.data.contactEmail.lower()))
         && schoolApplicationOk(request.resource.data);
       allow update, delete, list: if false;
     }
@@ -129,16 +190,83 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create, update, delete: if false;
 
+      function noNewPostPhotos(data) {
+        return data.get('photos', []) == [];
+      }
+
+      match /photoSubmissions/{postId} {
+        function galleryPhotoOk(photo) {
+          return photo is string && photo.size() >= 32 && photo.size() <= 160000
+            && photo.size() % 4 == 0
+            && photo.matches('^iVBORw0KGgo[A-Za-z0-9+/]+={0,2}$');
+        }
+
+        function galleryPhotosOk(photos) {
+          return photos is list && photos.size() >= 1 && photos.size() <= 4
+            && galleryPhotoOk(photos[0])
+            && (photos.size() < 2 || galleryPhotoOk(photos[1]))
+            && (photos.size() < 3 || galleryPhotoOk(photos[2]))
+            && (photos.size() < 4 || galleryPhotoOk(photos[3]));
+        }
+
+        function newPhotoSubmissionOk(data) {
+          return data.keys().hasOnly([
+              'id', 'authorId', 'authorName', 'title', 'body', 'category',
+              'subtag', 'at', 'anonymous', 'priority', 'askedPerson', 'photos',
+              'likes', 'status', 'submittedAt'
+            ])
+            && moderationDocumentIdOk(postId)
+            && data.id == postId
+            && data.authorId == request.auth.uid
+            && data.category == 'gallery'
+            && data.subtag in ['Campus', 'Sports', 'Arts']
+            && data.at is string && data.at.size() <= 35
+            && data.anonymous is bool
+            && (data.anonymous || 'authorName' in data)
+            && postAuthorNameOk(data)
+            && data.priority == 'Normal'
+            && data.askedPerson == null
+            && data.likes == 0
+            && communityTextOk(data.title, 140)
+            && communityTextOk(data.body, 5000)
+            && galleryPhotosOk(data.photos)
+            && data.status == 'pending'
+            && data.submittedAt == request.time;
+        }
+
+        // A submitter can retry the same ID if their acknowledgement was lost.
+        allow get: if belongsToSchool(schoolId)
+          && (resource == null || resource.data.authorId == request.auth.uid);
+        allow list: if belongsToSchool(schoolId)
+          && resource.data.authorId == request.auth.uid
+          && request.query.limit <= 10;
+        allow create: if belongsToSchool(schoolId)
+          && activeAccount(request.auth.uid)
+          && newPhotoSubmissionOk(request.resource.data)
+          && !exists(/databases/$(database)/documents/schools/$(schoolId)/posts/$(postId));
+        allow update, delete: if false;
+      }
+
       match /posts/{postId} {
         allow read: if belongsToSchool(schoolId);
         allow create: if belongsToSchool(schoolId)
           && request.resource.data.authorId == request.auth.uid
           && noSecrets(request.resource.data)
+          && activeAccount(request.auth.uid)
+          && communityTextOk(request.resource.data.title, 140)
+          && communityTextOk(request.resource.data.body, 5000)
+          && noNewPostPhotos(request.resource.data)
           && postAuthorNameOk(request.resource.data);
         allow update: if belongsToSchool(schoolId)
           && resource.data.authorId == request.auth.uid
           && request.resource.data.authorId == request.auth.uid
           && noSecrets(request.resource.data)
+          && activeAccount(request.auth.uid)
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['title', 'body'])
+            || (communityTextOk(request.resource.data.title, 140)
+              && communityTextOk(request.resource.data.body, 5000)))
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['photos'])
+            || noNewPostPhotos(request.resource.data))
           && postAuthorNameOk(request.resource.data);
         allow delete: if belongsToSchool(schoolId)
           && resource.data.authorId == request.auth.uid;
@@ -153,12 +281,17 @@ service cloud.firestore {
             && exists(parentPost())
             && request.resource.data.authorId == request.auth.uid
             && noSecrets(request.resource.data)
+            && activeAccount(request.auth.uid)
+            && communityTextOk(request.resource.data.body, 2000)
             && authorNameOk(request.resource.data);
           allow update: if belongsToSchool(schoolId)
             && exists(parentPost())
             && resource.data.authorId == request.auth.uid
             && request.resource.data.authorId == request.auth.uid
             && noSecrets(request.resource.data)
+            && activeAccount(request.auth.uid)
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['body'])
+              || communityTextOk(request.resource.data.body, 2000))
             && authorNameOk(request.resource.data);
           allow delete: if belongsToSchool(schoolId)
             && (resource.data.authorId == request.auth.uid
@@ -166,10 +299,69 @@ service cloud.firestore {
         }
       }
 
+      match /moderationReports/{reportId} {
+        function submittedReportOk(data) {
+          return data.keys().hasOnly([
+              'kind', 'parentId', 'contentId', 'reason', 'reporterId',
+              'targetUid', 'title', 'body', 'createdAt', 'status'
+            ])
+            && data.kind in ['post', 'comment', 'message']
+            && data.reason in ['harassment', 'unsafe', 'privacy', 'inappropriate', 'spam', 'other']
+            && data.reporterId == request.auth.uid
+            && moderationUidOk(data.targetUid)
+            && data.targetUid != request.auth.uid
+            && activeAccount(data.targetUid)
+            && data.title is string && data.title.size() <= 140
+            && data.body is string && data.body.size() <= 5000
+            && moderationDocumentIdOk(data.contentId)
+            && data.createdAt == request.time
+            && data.status == 'pending';
+        }
+
+        function reportsPost(data) {
+          let post = get(/databases/$(database)/documents/schools/$(schoolId)/posts/$(data.contentId)).data;
+          return data.parentId == ''
+            && data.targetUid == post.authorId
+            && data.title == post.title
+            && data.body == post.body;
+        }
+
+        function reportsComment(data) {
+          let postPath = /databases/$(database)/documents/schools/$(schoolId)/posts/$(data.parentId);
+          let reply = get(/databases/$(database)/documents/schools/$(schoolId)/posts/$(data.parentId)/replies/$(data.contentId)).data;
+          return exists(postPath)
+            && data.targetUid == reply.authorId
+            && data.title == ''
+            && data.body == reply.body;
+        }
+
+        function reportsMessage(data) {
+          let friendship = get(/databases/$(database)/documents/schools/$(schoolId)/friendRequests/$(data.parentId)).data;
+          let message = get(/databases/$(database)/documents/schools/$(schoolId)/friendRequests/$(data.parentId)/messages/$(data.contentId)).data;
+          return friendship.status == 'accepted'
+            && request.auth.uid in friendship.participants
+            && data.targetUid in friendship.participants
+            && data.targetUid == message.senderId
+            && data.title == ''
+            && data.body == message.text;
+        }
+
+        // Only authorized administrators can read and resolve reports.
+        allow read, update, delete: if false;
+        allow create: if belongsToSchool(schoolId)
+          && activeAccount(request.auth.uid)
+          && submittedReportOk(request.resource.data)
+          && ((request.resource.data.kind == 'post' && reportsPost(request.resource.data))
+            || (moderationDocumentIdOk(request.resource.data.parentId)
+              && ((request.resource.data.kind == 'comment' && reportsComment(request.resource.data))
+                || (request.resource.data.kind == 'message' && reportsMessage(request.resource.data)))));
+      }
+
       match /directory/{uid} {
         allow read: if belongsToSchool(schoolId);
         allow create, update: if belongsToSchool(schoolId)
           && request.auth.uid == uid
+          && activeAccount(uid)
           && request.resource.data.keys().hasOnly(['name'])
           && request.resource.data.name is string
           && request.resource.data.name == userData().name;
@@ -177,10 +369,6 @@ service cloud.firestore {
       }
 
       match /friendRequests/{pairId} {
-        function validUid(uid) {
-          return uid is string && uid.matches('^[A-Za-z0-9_-]{1,128}$');
-        }
-
         function matchesSortedPair(data) {
           let senderFirst = data.senderId < data.recipientId;
           let first = senderFirst ? data.senderId : data.recipientId;
@@ -196,10 +384,11 @@ service cloud.firestore {
               'participants', 'senderId', 'recipientId', 'senderName',
               'status', 'createdAt', 'updatedAt'
             ])
-            && validUid(data.senderId)
-            && validUid(data.recipientId)
+            && moderationUidOk(data.senderId)
+            && moderationUidOk(data.recipientId)
             && data.senderId == request.auth.uid
             && matchesSortedPair(data)
+            && canContact(schoolId, data.senderId, data.recipientId)
             && data.senderName is string
             && data.senderName == userData().name
             && data.status == 'pending'
@@ -222,6 +411,7 @@ service cloud.firestore {
                 && changes.hasOnly(['status', 'updatedAt']))
               || (data.status == 'accepted'
                 && request.auth.uid == resource.data.recipientId
+                && canContact(schoolId, resource.data.senderId, resource.data.recipientId)
                 && changes.hasOnly(['status', 'updatedAt', 'recipientName'])
                 && data.recipientName is string
                 && data.recipientName == userData().name
@@ -264,8 +454,8 @@ service cloud.firestore {
               && messageId.split(':')[0] == request.auth.uid
               && data.keys().hasOnly(['senderId', 'text', 'createdAt'])
               && data.senderId == request.auth.uid
-              && data.text is string
-              && data.text.size() <= 4000
+              && canContact(schoolId, pairId.split(':')[0], pairId.split(':')[1])
+              && communityTextOk(data.text, 4000)
               && !data.text.matches('^\\s*$')
               && data.createdAt == request.time;
           }
@@ -287,10 +477,12 @@ service cloud.firestore {
       allow read: if signedIn() && request.auth.uid == uid;
       allow create: if signedIn()
         && request.auth.uid == uid
+        && activeAccount(uid)
         && profileOk()
         && canJoinSchool(request.resource.data.schoolId);
       allow update: if signedIn()
         && request.auth.uid == uid
+        && activeAccount(uid)
         && profileOk()
         && request.resource.data.schoolId == resource.data.schoolId;
       allow delete: if false;
@@ -299,12 +491,38 @@ service cloud.firestore {
         allow read: if signedIn() && request.auth.uid == uid;
         allow create, update: if signedIn()
           && request.auth.uid == uid
+          && activeAccount(uid)
           && noSecrets(request.resource.data);
         allow delete: if false;
 
+        match /blocked/{peerUid} {
+          function ownsBlockList() {
+            return belongsToSchool(schoolId) && request.auth.uid == uid && activeAccount(uid);
+          }
+
+          function blockOk(data) {
+            return data.keys().hasOnly(['targetUid', 'displayName', 'createdAt'])
+              && data.targetUid == peerUid
+              && data.displayName is string
+              && data.displayName.trim().size() >= 1
+              && data.displayName.size() <= 120
+              && data.createdAt == request.time;
+          }
+
+          allow read: if ownsBlockList();
+          allow create, update: if ownsBlockList()
+            && activeAccount(uid)
+            && moderationUidOk(peerUid)
+            && peerUid != uid
+            && schoolProfile(peerUid).schoolId == schoolId
+            && activeAccount(peerUid)
+            && blockOk(request.resource.data);
+          allow delete: if ownsBlockList() && activeAccount(uid);
+        }
+
         match /threads/{threadId} {
           function ownsChat() {
-            return belongsToSchool(schoolId) && request.auth.uid == uid;
+            return belongsToSchool(schoolId) && request.auth.uid == uid && activeAccount(uid);
           }
 
           allow read: if ownsChat();

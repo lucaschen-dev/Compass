@@ -9,10 +9,14 @@ class SchoolRegistrationPage extends StatefulWidget {
     super.key,
     required this.loadApplication,
     required this.submit,
+    this.initialContactEmail,
+    this.accountActions,
   });
 
   final Future<SchoolApplication?> Function() loadApplication;
   final Future<void> Function(SchoolApplicationDraft) submit;
+  final String? initialContactEmail;
+  final Widget? accountActions;
 
   @override
   State<SchoolRegistrationPage> createState() => _SchoolRegistrationPageState();
@@ -40,6 +44,7 @@ class _SchoolRegistrationPageState extends State<SchoolRegistrationPage> {
   @override
   void initState() {
     super.initState();
+    _contact.text = widget.initialContactEmail ?? '';
     _application = widget.loadApplication();
   }
 
@@ -194,6 +199,7 @@ class _SchoolRegistrationPageState extends State<SchoolRegistrationPage> {
             child: const Text('Done'),
           ),
         ),
+        ?widget.accountActions,
       ],
     );
   }
@@ -296,6 +302,7 @@ class _SchoolRegistrationPageState extends State<SchoolRegistrationPage> {
                 )
               : const Text('Submit for review'),
         ),
+        ?widget.accountActions,
       ],
     ),
   );

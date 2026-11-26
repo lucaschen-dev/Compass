@@ -5,13 +5,13 @@ Compass is a Flutter school community app. The hosted preview is available at [C
 ## Experience
 
 - The welcome screen has a subtle wave background and a searchable **Find Your School** list of approved schools. **Register** opens the private school application. Accepted schools use their chosen school color.
-- Learners join approved schools through a verified Google account with their school email and complete name and grade onboarding. **Sign in** also restores existing school accounts with Google or email/password. Sessions survive refresh.
+- Learners join approved schools by verifying their school email and completing name and grade onboarding. The iPhone and Mac apps use a Compass password. The hosted web version also supports Google sign-in. Existing Google users can use **Forgot password** to set a Compass password for the same account. Sessions survive refresh.
 - A school arrival animation fades in Compass and the school mark, then moves both into the Home header. The same brand elements remain mounted in the header, with stable type and color throughout the movement. Reduced-motion preferences are respected.
 - Four destinations: **Home**, **Guide**, **Chat**, and **Courses**. Desktop navigation highlights the entire icon-and-label row. The personal center is at the upper left. Appearance settings live inside the personal center.
 - Home carries Latest and For you feeds, six post categories, category/subtag filters, keyword search, topic recommendations, comments, likes, saved posts, anonymous posts, targeted questions, priorities, gallery posts, and composer drafts. For example, follow **Clubs → Badminton** to recommend badminton posts. Existing interest/time preferences still recommend sample peers, clubs, and events.
 - Named posts and comments show the author’s Compass profile name to readers at the same school. Anonymous posts display an anonymous label and omit the name field.
 - Home includes a **First week** launcher for the calendar, adviser and classroom directory, clubs, and school connections.
-- **Campus photos** groups Photo Gallery posts by date. Example albums show how Student Council and Photography Club could use the gallery. Demo school accounts can share up to four compressed photos per post with their school. This feature uses the existing shared posts collection.
+- **Campus photos** groups Photo Gallery posts by date. Example albums show how Student Council and Photography Club could use the gallery. School members can submit up to four compressed photos per album. Approved albums appear in the school feed. Members can report posts, comments and messages or block the sender.
 - A centered editable profile photo, full name, grade, bio, Posts/Saved/About sections, and settings.
 - Guide separates **Dress code**, **Grade**, **Faculty & classrooms**, **Campus life**, and **Course catalog**. Guide reading progress and course search remain available.
 - **Add friend** in Chat and **Friends and requests** in the personal center connect Firebase accounts in the same Compass school. Search for people who chose to show their name, or enter a Compass code. A request becomes a friendship only after the recipient accepts it. The Requests view supports accepting, declining and canceling pending requests. The local preview still uses sample classmates.
@@ -25,7 +25,7 @@ The two former demo schools are retired from discovery and closed to new enrollm
 
 Applications are saved in Firebase pending administrator review. The mail function sends a review notification when the project has configured an email provider and reviewer address. [School registration and review setup](docs/school-registration.md)
 
-A real school rollout requires verified membership, server-managed publisher roles, and a process for handling reported content and photos.
+See [Moderation](docs/moderation.md) for handling reports and photo submissions.
 
 ## Calendar subscriptions
 
@@ -65,3 +65,8 @@ The dev server listens on `127.0.0.1:8767`. Its demo identity exemption applies 
 ## Publish
 
 `.openai/hosting.json` retains the existing Site identity. Run `npm run build` to build Flutter, package separate static assets with the Cloudflare Vite plugin, and emit the Worker at `dist/server/index.js`. Publish through the Sites source/version workflow; keep the Site's current audience. Source changes are maintained on [GitHub](https://github.com/lucaschen-dev/Compass).
+
+
+## Privacy, support and App Store release
+
+See the [Privacy Policy](docs/privacy.md), [Compass Support](docs/support.md) and [App Store release checks](docs/app-store-readiness.md).

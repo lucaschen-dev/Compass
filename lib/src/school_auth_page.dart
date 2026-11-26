@@ -4,16 +4,18 @@ import 'app_ui.dart';
 import 'local_accounts.dart';
 import 'school_demo.dart';
 
-enum _AuthStep { login, first, forgot, password, name }
+enum _AuthStep { login, first, forgot, password, name, verify }
 
 class SchoolAuthPage extends StatefulWidget {
   const SchoolAuthPage({
     super.key,
     required this.school,
     required this.accounts,
+    this.pendingAccountActions,
   });
   final DemoSchool school;
   final SchoolAccounts accounts;
+  final Widget? pendingAccountActions;
   @override
   State<SchoolAuthPage> createState() => _SchoolAuthPageState();
 }
@@ -27,8 +29,9 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
   final _nameFocus = FocusNode();
   _AuthStep _step = _AuthStep.login;
   int _grade = 11;
-  bool _busy = false, _hidden = true, _googlePending = false;
+  bool _busy = false, _hidden = true, _profilePending = false;
   String? _error;
+  String? _notice;
   @override
   void dispose() {
     _email.dispose();
@@ -45,119 +48,111 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
     setState(() {
       _step = step;
       _error = null;
+      _notice = null;
     });
   }
 
-  Future<void> _login() async {
+  Future<void> _act(Future<void> Function() action) async {
     if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
+      _notice = null;
     });
     try {
-      final account = await widget.accounts.login(_email.text, _password.text);
-      if (mounted) Navigator.pop(context, account);
-    } on AccountException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      await action();
+    } on EmailVerificationRequired catch (error) {
+      if (mounted) {
+        _profilePending = true;
+        _password.clear();
+        _confirm.clear();
+        _go(_AuthStep.verify);
+        setState(() => _notice = error.message);
+      }
+    } on AccountException catch (error) {
+      if (mounted) setState(() => _error = error.message);
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Could not log in. Please try again.');
+        setState(() => _error = 'Could not reach Compass. Please try again.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _create() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
+  void _enterOrCompleteProfile(LocalAccount? account) {
+    if (!mounted) return;
+    if (account != null) {
+      Navigator.pop(context, account);
+      return;
+    }
+    _name.text = widget.accounts.displayName?.trim() ?? '';
+    _password.clear();
+    _profilePending = true;
+    _go(_AuthStep.name);
+  }
+
+  Future<void> _login() => _act(() async {
+    _name.clear();
+    _enterOrCompleteProfile(
+      await widget.accounts.login(_email.text, _password.text),
+    );
+  });
+
+  Future<void> _google() => _act(() async {
+    _name.clear();
+    _enterOrCompleteProfile(await widget.accounts.signInWithGoogle());
+  });
+
+  Future<void> _create() => _act(() async {
+    final account = await widget.accounts.create(
+      username: _email.text,
+      password: _password.text,
+      name: _name.text,
+      grade: _grade,
+    );
+    if (mounted) Navigator.pop(context, account);
+  });
+
+  Future<void> _finishProfile() => _act(() async {
+    final account = await widget.accounts.finishVerifiedProfile(
+      name: _name.text,
+      grade: _grade,
+    );
+    if (mounted) Navigator.pop(context, account);
+  });
+
+  Future<void> _confirmVerification() {
+    if (_name.text.trim().isNotEmpty) return _finishProfile();
+    return _act(() async {
+      await widget.accounts.verifyEmail();
+      if (mounted) _enterOrCompleteProfile(null);
     });
-    try {
-      final account = await widget.accounts.create(
-        username: _email.text,
-        password: _password.text,
-        name: _name.text,
-        grade: _grade,
+  }
+
+  Future<void> _resetPassword() => _act(() async {
+    await widget.accounts.resetPassword(_email.text);
+    if (mounted) {
+      setState(
+        () => _notice = 'If an account exists for that address, check your inbox for a link to set your Compass password.',
       );
-      if (mounted) Navigator.pop(context, account);
-    } on AccountException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _error = 'Could not save your account. Please try again.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
     }
-  }
+  });
 
-  Future<void> _google() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final account = await widget.accounts.signInWithGoogle();
-      if (!mounted) return;
-      if (account != null) {
-        Navigator.pop(context, account);
-        return;
-      }
-      _name.text = widget.accounts.googleDisplayName?.trim() ?? '';
-      setState(() {
-        _googlePending = true;
-        _step = _AuthStep.name;
-      });
-    } on AccountException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (_) {
-      if (mounted) {
-        setState(() => _error = 'Could not log in. Please try again.');
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+  Future<void> _resendVerification() => _act(() async {
+    await widget.accounts.resendVerification();
+    if (mounted) setState(() => _notice = 'Verification email sent.');
+  });
 
-  Future<void> _finishGoogle() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final account = await widget.accounts.finishGoogleProfile(
-        name: _name.text,
-        grade: _grade,
-      );
-      if (mounted) Navigator.pop(context, account);
-    } on AccountException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _error = 'Could not save your account. Please try again.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  void _requestEmail() {
+  void _startPassword() {
     try {
       widget.accounts.emailFor(_email.text);
-      setState(
-        () =>
-            _error = 'Email service is not configured. No email has been sent.',
-      );
-    } on AccountException catch (e) {
-      setState(() => _error = e.message);
+      _password.clear();
+      _confirm.clear();
+      _name.clear();
+      _go(_AuthStep.password);
+    } on AccountException catch (error) {
+      setState(() => _error = error.message);
     }
   }
 
@@ -230,19 +225,22 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
       _AuthStep.login => 'Welcome back',
       _AuthStep.first => 'First login',
       _AuthStep.forgot => 'Forgot password',
-      _AuthStep.password => 'Set a demo password',
+      _AuthStep.password =>
+        widget.accounts.isDemo ? 'Set a demo password' : 'Set your password',
       _AuthStep.name => 'Your real name',
+      _AuthStep.verify => 'Verify your school email',
     };
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(
           onPressed: () async {
+            if (_busy) return;
             if (_step == _AuthStep.login) {
               Navigator.pop(context);
             } else {
-              if (_googlePending) {
-                _googlePending = false;
-                await widget.accounts.cancelGoogle();
+              if (_profilePending) {
+                _profilePending = false;
+                await widget.accounts.cancelEnrollment();
               }
               if (mounted) _go(_AuthStep.login);
             }
@@ -377,14 +375,24 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                               ),
                             ),
                           ],
+                          if (_notice != null) ...[
+                            const SizedBox(height: 20),
+                            Text(_notice!),
+                          ],
+                          if (_step == _AuthStep.verify) ...[
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Open the verification link in your inbox, then come back here.',
+                            ),
+                          ],
                           const SizedBox(height: 36),
                           FilledButton(
                             onPressed: _busy
                                 ? null
                                 : switch (_step) {
                                     _AuthStep.login => _login,
-                                    _AuthStep.first ||
-                                    _AuthStep.forgot => _requestEmail,
+                                    _AuthStep.first => _startPassword,
+                                    _AuthStep.forgot => _resetPassword,
                                     _AuthStep.password => () {
                                       if (_password.text.length < 10 ||
                                           _password.text.length > 128) {
@@ -401,11 +409,14 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                                         );
                                         return;
                                       }
-                                      _googlePending = false;
+                                      _profilePending = false;
                                       _go(_AuthStep.name);
                                     },
                                     _AuthStep.name =>
-                                      _googlePending ? _finishGoogle : _create,
+                                      _profilePending
+                                          ? _finishProfile
+                                          : _create,
+                                    _AuthStep.verify => _confirmVerification,
                                   },
                             child: _busy
                                 ? const SizedBox.square(
@@ -416,13 +427,19 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                                   )
                                 : Text(switch (_step) {
                                     _AuthStep.login => 'Log in',
-                                    _AuthStep.first => 'Send setup email',
+                                    _AuthStep.first =>
+                                      widget.accounts.isDemo
+                                          ? 'Set up a local demo account'
+                                          : 'Continue',
                                     _AuthStep.forgot => 'Send reset email',
                                     _AuthStep.password => 'Continue',
                                     _AuthStep.name =>
-                                      _googlePending
+                                      _profilePending
                                           ? 'Continue'
-                                          : 'Create demo account',
+                                          : widget.accounts.isDemo
+                                          ? 'Create demo account'
+                                          : 'Create account',
+                                    _AuthStep.verify => 'I verified my email',
                                   }),
                           ),
                           if (_step == _AuthStep.login &&
@@ -433,20 +450,14 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                               child: const Text('Continue with Google'),
                             ),
                           ],
-                          if (_step == _AuthStep.first) ...[
-                            const SizedBox(height: 14),
-                            OutlinedButton(
-                              onPressed: () {
-                                try {
-                                  widget.accounts.emailFor(_email.text);
-                                  _go(_AuthStep.password);
-                                } on AccountException catch (e) {
-                                  setState(() => _error = e.message);
-                                }
-                              },
-                              child: const Text('Set up a local demo account'),
+                          if (_step == _AuthStep.verify)
+                            TextButton(
+                              onPressed: _busy ? null : _resendVerification,
+                              child: const Text('Resend verification email'),
                             ),
-                          ],
+                          if (_profilePending &&
+                              widget.pendingAccountActions != null)
+                            widget.pendingAccountActions!,
                           const SizedBox(height: 40),
                           if (_step == _AuthStep.login) const Spacer(),
                           if (_step == _AuthStep.login)
@@ -454,17 +465,22 @@ class _SchoolAuthPageState extends State<SchoolAuthPage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 TextButton(
-                                  onPressed: () => _go(_AuthStep.forgot),
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _go(_AuthStep.forgot),
                                   child: const Text('Forgot password'),
                                 ),
-                                if (!widget.school.isRegistered)
+                                if (widget.accounts.canCreate)
                                   TextButton(
-                                    onPressed: () => _go(_AuthStep.first),
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _go(_AuthStep.first),
                                     child: const Text('First login'),
                                   ),
                               ],
                             ),
-                          if (_step == _AuthStep.password)
+                          if (_step == _AuthStep.password &&
+                              widget.accounts.isDemo)
                             Text(
                               'Use a password only for this demo.',
                               style: Theme.of(context).textTheme.bodyMedium,

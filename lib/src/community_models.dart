@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import 'data/school_moderation.dart';
 import 'local_accounts.dart';
 import 'school_demo.dart';
 
@@ -23,6 +24,21 @@ enum PostCategory {
     gallery => ['Campus', 'Sports', 'Arts'],
     other => ['Student life', 'Study', 'Resources'],
   };
+}
+
+enum GallerySubmissionStatus {
+  pending('Pending review'),
+  approved('Published'),
+  rejected('Not approved');
+
+  const GallerySubmissionStatus(this.label);
+  final String label;
+}
+
+class GallerySubmission {
+  const GallerySubmission({required this.title, required this.status});
+  final String title;
+  final GallerySubmissionStatus status;
 }
 
 class CommunityProfile {
@@ -351,13 +367,42 @@ class CommunityController extends ChangeNotifier {
   late CommunityProfile profile;
   late List<CommunityPost> posts;
   late List<ChatThread> threads;
-  Set<String> savedPosts = {}, likedPosts = {}, followedTags = {}, clubApplies = {};
+  Set<String> savedPosts = {},
+      likedPosts = {},
+      followedTags = {},
+      clubApplies = {};
   Map<String, dynamic> composerDraft = {};
   Future<void> _tail = Future.value();
   bool _disposed = false;
+  SchoolModeration? _moderation;
+
+  SchoolModeration? get moderation => _moderation;
+
+  set moderation(SchoolModeration? next) {
+    if (_disposed || _moderation == next) return;
+    _moderation?.removeListener(notifyListeners);
+    _moderation = next;
+    _moderation?.addListener(notifyListeners);
+    notifyListeners();
+  }
+
+  bool hidesAuthor(String uid) => _moderation?.isBlocked(uid) ?? false;
+
+  Iterable<CommunityPost> get visiblePosts =>
+      posts.where((post) => !hidesAuthor(post.authorId));
+
+  Iterable<PostReply> visibleReplies(CommunityPost post) =>
+      post.replies.where((reply) => !hidesAuthor(reply.author));
+
+  bool canModeratePost(CommunityPost post) =>
+      _moderation != null &&
+      post.authorId != 'me' &&
+      !post.id.startsWith('${school.id}-');
+
   @override
   void dispose() {
     _disposed = true;
+    _moderation?.removeListener(notifyListeners);
     super.dispose();
   }
 

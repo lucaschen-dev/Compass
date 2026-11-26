@@ -25,7 +25,10 @@ class RegisteredSchool {
   final String color;
 
   static RegisteredSchool? _parse(String id, Map<String, dynamic>? data) {
-    if (data == null || data['status'] != 'approved') return null;
+    if (data == null ||
+        (data['status'] != 'approved' && data['status'] != 'review')) {
+      return null;
+    }
     final name = data['name'];
     final domain = data['emailDomain'];
     if (name is! String ||
@@ -242,16 +245,20 @@ class FirebaseSchoolRegistrationRepository
     final user = _currentUser();
     final email = user.email;
     final token = await user.getIdTokenResult();
+    final fields = draft._checkedData();
+    final canApply =
+        token.signInProvider == 'google.com' ||
+        (token.signInProvider == 'password' &&
+            email?.toLowerCase() == fields['contactEmail']);
     if (email == null ||
         !user.emailVerified ||
-        token.signInProvider != 'google.com' ||
+        !canApply ||
         auth.currentUser?.uid != user.uid) {
       throw const SchoolRegistrationException(
-        'Use a Google account with a verified email to register a school.',
+        'Use a verified account to register a school. Compass accounts must match the school contact email.',
       );
     }
 
-    final fields = draft._checkedData();
     final reference = _application(user.uid);
     await firestore.runTransaction((transaction) async {
       if ((await transaction.get(reference)).exists) {

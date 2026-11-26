@@ -388,7 +388,6 @@ CommunityDelta diffEncoded({
   required String? previousEncoded,
   required String nextEncoded,
   required String uid,
-  Map<String, CommunityPost> acknowledgedPosts = const {},
 }) {
   final previous = _decode(previousEncoded);
   final next = _decode(nextEncoded);
@@ -404,13 +403,8 @@ CommunityDelta diffEncoded({
     final before = beforePosts[post.id];
     if (ownsAuthor(post.authorId, uid)) {
       final payload = jsonEncode(remotePostJson(post, uid));
-      final acknowledged = acknowledgedPosts[post.id];
-      final alreadyPublished =
-          acknowledged != null &&
-          jsonEncode(remotePostJson(acknowledged, uid)) == payload;
-      if (!alreadyPublished &&
-          (before == null ||
-              jsonEncode(remotePostJson(before, uid)) != payload)) {
+      if (before == null ||
+          jsonEncode(remotePostJson(before, uid)) != payload) {
         upsertPosts.add(post);
       }
     }

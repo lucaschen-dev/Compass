@@ -25,7 +25,7 @@ users/{uid}/schools/{schoolId}/threads/{threadId}/messages/{messageId}
 
 **School catalog** (`schools/alderline`, `schools/cedarbrook`): `id`, `name`, `location`, `initials`, `emailDomain`.
 
-**Profile** (`users/{uid}`): `email`, `name`, `grade`, `schoolId`, `updatedAt`. Email/password accounts use `@{schoolId}.example`. A Google account keeps the Google email and the demo school chosen on the sign-in screen. The account’s school is fixed after profile creation.
+**Profile** (`users/{uid}`): `email`, `name`, `grade`, `schoolId`, `updatedAt`. New accounts must verify an email at the exact approved school domain, using a Compass password or the Google option on the web. Retired demo school profiles remain available to their existing members. The account’s school is fixed after profile creation.
 
 **Private state** (`users/{uid}/schools/{schoolId}`), one read and one write per sync:
 
@@ -41,7 +41,7 @@ users/{uid}/schools/{schoolId}/threads/{threadId}/messages/{messageId}
 | `followedTags` | string[] |
 | `updatedAt` | timestamp |
 
-**Directory** (`schools/{schoolId}/directory/{uid}`): `name` only. An account can show or hide its own name. Existing users can receive a request without listing their name by sharing their exact Compass code, which is their Firebase Auth UID. Directory entries are opt-in and private profile fields are not copied into them. When the private name changes, an account can hide and publish its name again. School membership here means membership in a Compass demo school.
+**Directory** (`schools/{schoolId}/directory/{uid}`): `name` only. An account can show or hide its own name. Existing users can receive a request without listing their name by sharing their exact Compass code, which is their Firebase Auth UID. Directory entries are opt-in and private profile fields are not copied into them. When the private name changes, an account can hide and publish its name again. Directory visibility stays within that Compass school.
 
 **Friend request** (`schools/{schoolId}/friendRequests/{pairId}`): sorted `participants` (exactly two Firebase UIDs), `senderId`, `recipientId`, `senderName`, `status`, `createdAt`, `updatedAt`. The document ID is the two sorted UIDs joined with `:`. Status begins at `pending`. The recipient can change it to `accepted` or `declined`, and the sender can change it to `canceled`. On acceptance the recipient adds `recipientName` from their own profile. Only accepted requests count as friends, and both people can see the accepted relationship. One canonical document and transactional writes keep simultaneous sends and retries consistent. A canceled request can be sent again. Decline is terminal.
 
@@ -86,3 +86,6 @@ COMPASS_FIREBASE_TEST_RUNTIME="$rules_runtime" \
   --project demo-compass-friends --only firestore \
   'node --test scripts/test_firestore_friends.mjs'
 ```
+
+
+New shared gallery uploads go to a private school photo submission until an operator publishes them. Account deletion requests are private and place a temporary write lock on the account. The device that requested deletion checks an opaque receipt containing only the processing status. See the [moderation guide](moderation.md) and [App Store release checks](app-store-readiness.md).

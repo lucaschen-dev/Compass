@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 
 import 'app_ui.dart';
 import 'community_models.dart';
+import 'data/school_moderation.dart';
+import 'school_moderation_ui.dart';
 
 String galleryPostAttribution(
   CommunityController community,
@@ -20,11 +22,13 @@ class CampusPhotosPage extends StatefulWidget {
     required this.community,
     required this.onCompose,
     this.onRefresh,
+    this.submissions,
   });
 
   final CommunityController community;
   final Future<void> Function(BuildContext) onCompose;
   final Future<void> Function()? onRefresh;
+  final Stream<List<GallerySubmission>>? submissions;
 
   @override
   State<CampusPhotosPage> createState() => _CampusPhotosPageState();
@@ -62,7 +66,7 @@ class _CampusPhotosPageState extends State<CampusPhotosPage> {
       listenable: widget.community,
       builder: (context, _) {
         final posts =
-            widget.community.posts
+            widget.community.visiblePosts
                 .where(
                   (post) =>
                       post.category == PostCategory.gallery &&
@@ -70,7 +74,7 @@ class _CampusPhotosPageState extends State<CampusPhotosPage> {
                 )
                 .toList()
               ..sort((a, b) => b.at.compareTo(a.at));
-        final hasCachedAlbums = widget.community.posts.any(
+        final hasCachedAlbums = widget.community.visiblePosts.any(
           (post) => post.sharedGalleryMedia && post.photos.isEmpty,
         );
         final today = DateUtils.dateOnly(DateTime.now());
@@ -90,6 +94,8 @@ class _CampusPhotosPageState extends State<CampusPhotosPage> {
               label: const Text('Post photos'),
             ),
           ),
+          if (widget.submissions case final submissions?)
+            _GallerySubmissions(submissions: submissions),
           if (_refreshing) const LinearProgressIndicator(),
           if (posts.isEmpty || hasCachedAlbums)
             Padding(
@@ -113,6 +119,16 @@ class _CampusPhotosPageState extends State<CampusPhotosPage> {
                 title: post.title,
                 attribution: galleryPostAttribution(widget.community, post),
                 caption: post.body,
+                actions: widget.community.canModeratePost(post)
+                    ? SchoolContentActions(
+                        moderation: widget.community.moderation!,
+                        target: SchoolReportTarget.post(post.id),
+                        authorId: post.authorId,
+                        authorName: post.anonymous
+                            ? 'Anonymous student'
+                            : galleryPostAttribution(widget.community, post),
+                      )
+                    : null,
                 photos: [
                   for (final photo in post.photos) _AlbumPhoto.encoded(photo),
                 ],
@@ -149,6 +165,38 @@ class _CampusPhotosPageState extends State<CampusPhotosPage> {
   );
 }
 
+class _GallerySubmissions extends StatelessWidget {
+  const _GallerySubmissions({required this.submissions});
+  final Stream<List<GallerySubmission>> submissions;
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<GallerySubmission>>(
+    stream: submissions,
+    builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Text('Could not load your photo submissions.'),
+        );
+      }
+      final entries = snapshot.data ?? const [];
+      if (entries.isEmpty) return const SizedBox.shrink();
+      return ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        title: const Text('Your submissions'),
+        children: [
+          for (final entry in entries)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(entry.title),
+              subtitle: Text(entry.status.label),
+            ),
+        ],
+      );
+    },
+  );
+}
+
 class _PhotoSectionTitle extends StatelessWidget {
   const _PhotoSectionTitle(this.title);
   final String title;
@@ -169,8 +217,10 @@ class _PhotoAlbumCard extends StatelessWidget {
     required this.attribution,
     required this.caption,
     required this.photos,
+    this.actions,
   });
 
+  final Widget? actions;
   final String title;
   final String attribution;
   final String caption;
@@ -184,7 +234,7 @@ class _PhotoAlbumCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _PhotoStrip(title: title, photos: photos),
+          _PhotoStrip(title: title, photos: photos, actions: actions),
           const SizedBox(height: 12),
           Text(title, style: theme.textTheme.titleLarge),
           const SizedBox(height: 4),
@@ -217,9 +267,11 @@ class GalleryPostPhotos extends StatelessWidget {
 }
 
 class _PhotoStrip extends StatelessWidget {
-  const _PhotoStrip({required this.title, required this.photos});
+  const _PhotoStrip({required this.title, required this.photos, this.actions});
+
   final String title;
   final List<_AlbumPhoto> photos;
+  final Widget? actions;
 
   @override
   Widget build(BuildContext context) => Stack(
@@ -245,6 +297,16 @@ class _PhotoStrip extends StatelessWidget {
           ),
         ),
       ),
+      if (actions case final menu?)
+        PositionedDirectional(
+          top: 8,
+          end: 8,
+          child: Material(
+            color: Theme.of(context).colorScheme.surface,
+            shape: const CircleBorder(),
+            child: menu,
+          ),
+        ),
       if (photos.length > 1)
         Positioned(
           bottom: 12,

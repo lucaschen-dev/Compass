@@ -56,6 +56,7 @@ class PreviewShell extends StatefulWidget {
     required this.community,
     required this.accountEmail,
     required this.onLogout,
+    this.onRequestDeletion,
     required this.localPreferences,
     required this.initialSaved,
   });
@@ -77,6 +78,7 @@ class PreviewShell extends StatefulWidget {
   final CommunityController community;
   final String accountEmail;
   final Future<void> Function() onLogout;
+  final Future<void> Function(String receipt)? onRequestDeletion;
   final SharedPreferencesAsync localPreferences;
   final Map<String, Object?> initialSaved;
   @override
@@ -141,12 +143,14 @@ class _PreviewShellState extends State<PreviewShell>
         context,
         schoolName: shortSchoolName(widget.school),
         repository: remote.friends,
+        moderation: remote.moderation,
         onOpenChat: (context, uid, name) =>
             openSchoolConversation(
               context,
               chat: remote.chat,
               peerId: uid,
               peerName: name,
+              moderation: remote.moderation,
             ),
       );
     }
@@ -168,6 +172,7 @@ class _PreviewShellState extends State<PreviewShell>
         themeMode: widget.themeMode,
         onChangeTheme: widget.onChangeTheme,
         onLogout: widget.onLogout,
+        onRequestDeletion: widget.onRequestDeletion,
         onSwitchSchool: widget.onSwitchSchool,
         cloudBacked: CompassScope.maybeOf(context) != null,
         onOpenFriends: CompassScope.maybeOf(context) == null
@@ -192,7 +197,8 @@ class _PreviewShellState extends State<PreviewShell>
           onRefreshPhotos: remote == null
               ? null
               : () => remote.refreshPosts(force: true),
-          publishGalleryPost: remote?.publishGalleryPost,
+          submitGalleryPost: remote?.submitGalleryPost,
+          gallerySubmissions: remote?.gallerySubmissions,
           newcomerSection: _FirstWeek(
             onCalendar: () => _select(_Destination.courses),
             onAdviser: () => openFacultyDirectory(
@@ -228,6 +234,7 @@ class _PreviewShellState extends State<PreviewShell>
             : SchoolChatPage(
                 friends: remote.friends,
                 chat: remote.chat,
+                moderation: remote.moderation,
                 onAddFriend: () => _openFriends(context),
               ),
         _Destination.courses => DemoAcademicsPage(

@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'school_moderation.dart';
+
 const schoolChatMessageLimit = 4000;
 const schoolChatMessagePageSize = 50;
 
@@ -144,6 +146,9 @@ class FirebaseSchoolChatRepository implements SchoolChatRepository {
         'Enter a message with up to $schoolChatMessageLimit characters.',
       );
     }
+    if (!communityTextAllowed(body)) {
+      throw const SchoolChatActionException(communityTextWarning);
+    }
     if (!_validMessageId.hasMatch(messageId)) {
       throw const SchoolChatActionException(
         'Start a new message and try again.',
@@ -153,20 +158,29 @@ class FirebaseSchoolChatRepository implements SchoolChatRepository {
     final ref = _messages(friendUid).doc('$uid:$messageId');
     // Users can retry when the acknowledgement is lost. Read the same document
     // first so the retry cannot overwrite a delivered message or add a duplicate.
-    await firestore.runTransaction((transaction) async {
-      _requireAccount();
-      final sent = (await transaction.get(ref)).data();
-      if (sent != null) {
-        if (sent['senderId'] == uid && sent['text'] == body) return;
+    try {
+      await firestore.runTransaction((transaction) async {
+        _requireAccount();
+        final sent = (await transaction.get(ref)).data();
+        if (sent != null) {
+          if (sent['senderId'] == uid && sent['text'] == body) return;
+          throw const SchoolChatActionException(
+            'This message was already sent. Start a new message.',
+          );
+        }
+        transaction.set(ref, {
+          'senderId': uid,
+          'text': body,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      });
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
         throw const SchoolChatActionException(
-          'This message was already sent. Start a new message.',
+          'Messaging is unavailable with this person.',
         );
       }
-      transaction.set(ref, {
-        'senderId': uid,
-        'text': body,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    });
+      rethrow;
+    }
   }
 }

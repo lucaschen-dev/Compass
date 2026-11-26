@@ -16,22 +16,27 @@ String schoolEmailDomain(DemoSchool school) =>
 abstract class SchoolAccounts {
   String emailFor(String username);
   LocalAccount? find(String sessionKey);
+  bool get canCreate;
+  bool get isDemo;
   Future<LocalAccount> create({
     required String username,
     required String password,
     required String name,
     required int grade,
   });
-  Future<LocalAccount> login(String username, String password);
+  Future<LocalAccount?> login(String username, String password);
+  Future<void> resetPassword(String username);
+  Future<void> verifyEmail();
+  Future<void> resendVerification();
   Future<LocalAccount?> restore(String sessionKey);
   bool get supportsGoogle;
-  String? get googleDisplayName;
+  String? get displayName;
   Future<LocalAccount?> signInWithGoogle();
-  Future<LocalAccount> finishGoogleProfile({
+  Future<LocalAccount> finishVerifiedProfile({
     required String name,
     required int grade,
   });
-  Future<void> cancelGoogle();
+  Future<void> cancelEnrollment();
 }
 
 String schoolEmailFor(DemoSchool school, String username) {
@@ -51,11 +56,7 @@ void validateNewAccount({
   required String name,
   required int grade,
 }) {
-  if (password.length < 10 || password.length > 128) {
-    throw const AccountException(
-      'Use a password between 10 and 128 characters.',
-    );
-  }
+  validateNewPassword(password);
   if (name.trim().length < 2 || name.trim().length > 60) {
     throw const AccountException('Enter your full name (2–60 characters).');
   }
@@ -64,9 +65,28 @@ void validateNewAccount({
   }
 }
 
+void validateNewPassword(String password) {
+  if (password.length < 10 || password.length > 128) {
+    throw const AccountException(
+      'Use a password between 10 and 128 characters.',
+    );
+  }
+}
+
 class AccountException implements Exception {
   const AccountException(this.message);
   final String message;
+}
+
+class EmailVerificationRequired extends AccountException {
+  const EmailVerificationRequired(this.email, {required bool sent})
+    : super(
+        sent
+            ? 'Verification email sent to $email.'
+            : 'Verify $email to continue.',
+      );
+
+  final String email;
 }
 
 class LocalAccount {
@@ -210,10 +230,28 @@ class LocalAccounts implements SchoolAccounts {
   }
 
   @override
+  bool get canCreate => true;
+
+  @override
+  bool get isDemo => true;
+
+  @override
+  Future<void> resetPassword(String username) async {
+    emailFor(username);
+    throw const AccountException('Demo accounts cannot receive email.');
+  }
+
+  @override
+  Future<void> verifyEmail() async {}
+
+  @override
+  Future<void> resendVerification() async {}
+
+  @override
   bool get supportsGoogle => false;
 
   @override
-  String? get googleDisplayName => null;
+  String? get displayName => null;
 
   @override
   Future<LocalAccount?> signInWithGoogle() async {
@@ -221,7 +259,7 @@ class LocalAccounts implements SchoolAccounts {
   }
 
   @override
-  Future<LocalAccount> finishGoogleProfile({
+  Future<LocalAccount> finishVerifiedProfile({
     required String name,
     required int grade,
   }) async {
@@ -229,5 +267,5 @@ class LocalAccounts implements SchoolAccounts {
   }
 
   @override
-  Future<void> cancelGoogle() async {}
+  Future<void> cancelEnrollment() async {}
 }

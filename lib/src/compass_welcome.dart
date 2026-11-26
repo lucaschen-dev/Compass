@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'app_ui.dart';
 import 'compass_backdrop.dart';
+import 'compass_policy_links.dart';
 
 class CompassWelcome extends StatelessWidget {
   const CompassWelcome({
@@ -9,12 +10,14 @@ class CompassWelcome extends StatelessWidget {
     required this.onFindSchool,
     this.onRegisterSchool,
     this.onSignIn,
+    this.deletionStatus,
     this.appearanceAction = const SizedBox.shrink(),
   });
   final VoidCallback onFindSchool;
   final VoidCallback? onRegisterSchool;
   final VoidCallback? onSignIn;
   final Widget appearanceAction;
+  final Widget? deletionStatus;
   @override
   Widget build(BuildContext context) => Scaffold(
     body: CompassBackdrop(
@@ -66,6 +69,8 @@ class CompassWelcome extends StatelessWidget {
                         ),
                       ),
                       const Spacer(),
+                      ?deletionStatus,
+                      const CompassPolicyLinks(),
                     ],
                   ),
                 ),

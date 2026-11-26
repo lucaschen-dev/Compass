@@ -3,17 +3,21 @@ import 'package:material_ui/material_ui.dart';
 
 import 'app_ui.dart';
 import 'data/friend_repository.dart';
+import 'data/school_moderation.dart';
+import 'school_moderation_ui.dart';
 
 Future<void> openSchoolPeopleDirectory(
   BuildContext context, {
   required String schoolName,
   required FriendRepository repository,
+  SchoolModeration? moderation,
   void Function(BuildContext, String, String)? onOpenChat,
 }) => Navigator.of(context).push<void>(
   MaterialPageRoute(
     builder: (_) => SchoolPeopleDirectory(
       schoolName: schoolName,
       repository: repository,
+      moderation: moderation,
       onOpenChat: onOpenChat,
     ),
   ),
@@ -26,11 +30,13 @@ class SchoolPeopleDirectory extends StatefulWidget {
     super.key,
     required this.schoolName,
     required this.repository,
+    this.moderation,
     this.onOpenChat,
   });
 
   final String schoolName;
   final FriendRepository repository;
+  final SchoolModeration? moderation;
   final void Function(BuildContext, String, String)? onOpenChat;
 
   @override
@@ -106,7 +112,11 @@ class _SchoolPeopleDirectoryState extends State<SchoolPeopleDirectory> {
               requests.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          return _content(directory.data ?? [], requests.data ?? []);
+          return ListenableBuilder(
+            listenable: Listenable.merge([widget.moderation]),
+            builder: (context, _) =>
+                _content(directory.data ?? [], requests.data ?? []),
+          );
         },
       ),
     ),
@@ -117,9 +127,15 @@ class _SchoolPeopleDirectoryState extends State<SchoolPeopleDirectory> {
     List<SchoolFriendRequest> requests,
   ) {
     final uid = widget.repository.uid;
-    final people = {for (final member in members) member.uid: member.name};
+    final moderation = widget.moderation;
+    final people = {
+      for (final member in members)
+        if (moderation?.isBlocked(member.uid) != true) member.uid: member.name,
+    };
     final byPerson = {
-      for (final request in requests) request.otherUid(uid): request,
+      for (final request in requests)
+        if (moderation?.isBlocked(request.otherUid(uid)) != true)
+          request.otherUid(uid): request,
     };
     String nameOf(String user) {
       final name = people[user] ?? byPerson[user]?.otherName(uid);
@@ -214,6 +230,16 @@ class _SchoolPeopleDirectoryState extends State<SchoolPeopleDirectory> {
                       : () => _respond(user, accept: false),
                   child: const Text('Decline'),
                 ),
+                if (moderation != null)
+                  TextButton(
+                    onPressed: () => confirmSchoolBlock(
+                      context,
+                      moderation,
+                      user,
+                      nameOf(user),
+                    ),
+                    child: const Text('Block person'),
+                  ),
               ],
             ),
         ],
